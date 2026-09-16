@@ -54,7 +54,13 @@ The frontend currently connects to:
 http://localhost:3000/service-providers
 
 A fresh backend database contains no service providers.
-Use the creation form to add your first provider.
+To explore the application with 12 fictional profiles, follow the
+"Demo data" section in the `entraide-api` README.
+
+The demo dataset provides two pages of results with the default page size,
+so you can try pagination and search immediately.
+
+You can also use the creation form to add service providers manually.
 
 ## Quality checks
 
