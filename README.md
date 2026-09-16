@@ -78,6 +78,12 @@ npm run build
 
 The build output is generated in `dist/entraide-web`.
 
+## Continuous integration
+
+The GitHub Actions workflow runs on pushes and pull requests targeting
+`main`. It installs dependencies with `npm ci`, runs the tests and
+creates a production build.
+
 ## Planned improvements
 
 - Visual design and responsive layouts
