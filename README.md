@@ -12,6 +12,7 @@ service.
 
 ## Current features
 
+- Responsive layouts for the provider list, detail page and creation form.
 - Paginated service provider list
 - Search with pagination
 - Service provider detail pages
@@ -23,8 +24,8 @@ service.
 ## Project status
 
 The application is under active development.
-The interface currently focuses on functionality; visual design and
-responsive polish are planned.
+A first responsive interface is implemented, with further visual and
+accessibility improvements planned.
 
 Authentication, user accounts and service request workflows are also planned.
 The current version is intended for local development and demonstration.
@@ -86,7 +87,7 @@ creates a production build.
 
 ## Planned improvements
 
-- Visual design and responsive layouts
+- Further visual and accessibility improvements
 - Additional provider filters and sorting controls
 - Authentication and user accounts
 - Multiple services per provider

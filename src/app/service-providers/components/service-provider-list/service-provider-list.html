@@ -17,27 +17,31 @@
 } @else {
   <p>Nombre total de résultats: {{ total() }}</p>
   @if (totalPages() > 0) {
-    <button
-      type="button"
-      aria-label="Page précédente"
-      [disabled]="currentPage() <= 1"
-      (click)="loadPage(currentPage() - 1)"
-    >
-      Précédent
-    </button>
-    <p>Page {{ currentPage() }} / {{ totalPages() }}</p>
-    <button
-      type="button"
-      aria-label="Page suivante"
-      [disabled]="currentPage() >= totalPages()"
-      (click)="loadPage(currentPage() + 1)"
-    >
-      Suivant
-    </button>
+    <nav class="pagination" aria-label="Pagination des prestataires">
+      <button
+        type="button"
+        aria-label="Page précédente"
+        [disabled]="currentPage() <= 1"
+        (click)="loadPage(currentPage() - 1)"
+      >
+        Précédent
+      </button>
+      <p>Page {{ currentPage() }} / {{ totalPages() }}</p>
+      <button
+        type="button"
+        aria-label="Page suivante"
+        [disabled]="currentPage() >= totalPages()"
+        (click)="loadPage(currentPage() + 1)"
+      >
+        Suivant
+      </button>
+    </nav>
   }
-  @for (serviceProvider of serviceProviders(); track serviceProvider.id) {
-    <app-service-provider-card [serviceProvider]="serviceProvider" />
-  } @empty {
-    <p>Aucun intervenant disponible.</p>
-  }
+  <div class="provider-grid">
+    @for (serviceProvider of serviceProviders(); track serviceProvider.id) {
+      <app-service-provider-card [serviceProvider]="serviceProvider" />
+    } @empty {
+      <p>Aucun intervenant disponible.</p>
+    }
+  </div>
 }
