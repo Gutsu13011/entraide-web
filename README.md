@@ -1,44 +1,82 @@
 # Entraide Web
 
-Projet d’apprentissage Angular 22 représentant une liste d’intervenants locaux.
+Angular frontend for Entraide, a personal project focused on connecting
+people with local service providers.
 
-## Fonctionnalités
+## Project background
 
-- Liste des intervenants
-- Fiche détaillée avec routage
-- Formulaire réactif validé
-- Lecture et création via HTTP
-- États de chargement, liste vide et erreur
-- Tests avec Vitest
+Entraide started as a personal project to learn Angular and NestJS
+through practice. It is now evolving into a full-stack portfolio
+application, with the longer-term ambition of becoming a real local
+service.
 
-## Installation
+## Current features
 
-Commande `npm install`.
+- Paginated service provider list
+- Search with pagination
+- Service provider detail pages
+- Service provider creation through a validated reactive form
+- HTTP integration with the NestJS backend
+- Loading, empty and error states
+- Automated tests with Vitest
 
-## Running the application
+## Project status
 
-The frontend uses Entraide API, a separate NestJS backend.
-Before starting it, follow the backend README to install its dependencies,
-configure the application, and apply the database migrations.
+The application is under active development.
+The interface currently focuses on functionality; visual design and
+responsive polish are planned.
 
-Use two separate terminals:
+Authentication, user accounts and service request workflows are also planned.
+The current version is intended for local development and demonstration.
 
-1. In the `entraide-api` directory, run `npm run start:dev` to start NestJS on port 3000.
-2. In the `entraide-web` directory, run `npm start` to start Angular on port 4200.
+## Requirements
 
-Local URLs:
+- Node.js 26
+- npm 11.12.1, as declared in `package.json`
+- Entraide API running locally
 
-- Application: `http://localhost:4200`
-- Service providers API: `http://localhost:3000/service-providers`
+## Local setup
 
-## Tests
+First, follow the `entraide-api` README to install and configure the backend,
+apply its database migrations, and start it on port `3000`.
 
-Commande :
+Then, in a separate terminal, run these commands from the `entraide-web`
+directory:
 
-`npm test -- --watch=false`
+```bash
+npm ci
+npm start
+```
 
-## Build
+Open http://localhost:4200 in your browser.
 
-Commande :
+The frontend currently connects to:
+http://localhost:3000/service-providers
 
-`npm run build`
+A fresh backend database contains no service providers.
+Use the creation form to add your first provider.
+
+## Quality checks
+
+Run the tests once:
+
+```bash
+npm test -- --watch=false
+```
+
+Create a production build:
+
+```bash
+npm run build
+```
+
+The build output is generated in `dist/entraide-web`.
+
+## Planned improvements
+
+- Visual design and responsive layouts
+- Additional provider filters and sorting controls
+- Authentication and user accounts
+- Multiple services per provider
+- Service requests and status tracking
+- Reviews linked to completed service requests
