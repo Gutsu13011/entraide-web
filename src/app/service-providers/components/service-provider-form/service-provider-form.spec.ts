@@ -29,4 +29,19 @@ describe('ServiceProviderForm', () => {
     firstNameControl.setValue('John');
     expect(firstNameControl.valid).toBe(true);
   });
+
+  it('should require a positive hourly rate', () => {
+    const hourlyRateControl = component.serviceProviderForm.controls.hourlyRate;
+
+    expect(hourlyRateControl.hasError('required')).toBe(true);
+
+    hourlyRateControl.setValue(-1);
+    expect(hourlyRateControl.invalid).toBe(true);
+
+    hourlyRateControl.setValue(0);
+    expect(hourlyRateControl.invalid).toBe(true);
+
+    hourlyRateControl.setValue(45.5);
+    expect(hourlyRateControl.valid).toBe(true);
+  });
 });

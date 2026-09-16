@@ -39,7 +39,7 @@ export class ServiceProviderForm {
       validators: [Validators.required, Validators.minLength(20)],
     }),
     hourlyRate: new FormControl<number | null>(null, {
-      validators: [Validators.required, Validators.min(0)],
+      validators: [Validators.required, Validators.min(0.01)],
     }),
     available: new FormControl(true, {
       nonNullable: true,

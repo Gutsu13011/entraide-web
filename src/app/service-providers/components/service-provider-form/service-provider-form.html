@@ -71,7 +71,7 @@
     <p>La description doit contenir au moins 20 caractères.</p>
   }
   <label for="hourlyRate">Tarif horaire</label>
-  <input id="hourlyRate" type="number" formControlName="hourlyRate" min="0" />
+  <input id="hourlyRate" type="number" formControlName="hourlyRate" min="0.01" step="0.01" />
   @if (
     serviceProviderForm.controls.hourlyRate.touched &&
     serviceProviderForm.controls.hourlyRate.hasError('required')
@@ -82,7 +82,7 @@
     serviceProviderForm.controls.hourlyRate.touched &&
     serviceProviderForm.controls.hourlyRate.hasError('min')
   ) {
-    <p>Le tarif horaire ne peut pas être négatif.</p>
+    <p>Le tarif horaire doit être supérieur à 0.</p>
   }
   <label for="available">Disponible immédiatement</label>
   <input type="checkbox" id="available" formControlName="available" />
