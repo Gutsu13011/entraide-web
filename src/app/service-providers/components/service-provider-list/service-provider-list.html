@@ -1,0 +1,43 @@
+<h2>Prestataires disponibles</h2>
+<a routerLink="/service-providers/new">Ajouter un intervenant</a>
+<form (submit)="applySearch(); $event.preventDefault()">
+  <label for="provider-search">Rechercher un prestataire</label>
+  <input
+    id="provider-search"
+    type="search"
+    [formControl]="searchControl"
+    placeholder="Profession ou Nom"
+  />
+  <button type="submit" [disabled]="isLoading()">Rechercher</button>
+</form>
+@if (isLoading()) {
+  <p>Chargement des intervenants...</p>
+} @else if (errorMessage(); as message) {
+  <p>{{ message }}</p>
+} @else {
+  <p>Nombre total de résultats: {{ total() }}</p>
+  @if (totalPages() > 0) {
+    <button
+      type="button"
+      aria-label="Page précédente"
+      [disabled]="currentPage() <= 1"
+      (click)="loadPage(currentPage() - 1)"
+    >
+      Précédent
+    </button>
+    <p>Page {{ currentPage() }} / {{ totalPages() }}</p>
+    <button
+      type="button"
+      aria-label="Page suivante"
+      [disabled]="currentPage() >= totalPages()"
+      (click)="loadPage(currentPage() + 1)"
+    >
+      Suivant
+    </button>
+  }
+  @for (serviceProvider of serviceProviders(); track serviceProvider.id) {
+    <app-service-provider-card [serviceProvider]="serviceProvider" />
+  } @empty {
+    <p>Aucun intervenant disponible.</p>
+  }
+}

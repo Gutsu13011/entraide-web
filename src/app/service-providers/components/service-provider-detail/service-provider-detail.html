@@ -1,0 +1,21 @@
+@if (isLoading()) {
+  <p>Chargement de l'intervenant...</p>
+} @else if (errorMessage(); as message) {
+  <p>{{ message }}</p>
+} @else if (serviceProvider(); as provider) {
+  <article class="service-provider-card">
+    <h2>{{ provider.firstName }} {{ provider.lastName }}</h2>
+    <p>{{ provider.profession }}</p>
+    <p>{{ provider.city }}</p>
+    <p>{{ provider.hourlyRate }} € / heure</p>
+    <p>{{ provider.description }}</p>
+    <p>
+      @if (provider.available) {
+        <span class="available">Disponible</span>
+      } @else {
+        <span class="unavailable">Indisponible</span>
+      }
+    </p>
+  </article>
+}
+<a routerLink="/">Retour à la liste</a>

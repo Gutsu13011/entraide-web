@@ -1,0 +1,15 @@
+<article class="service-provider-card">
+  <h2>{{ serviceProvider().firstName }} {{ serviceProvider().lastName }}</h2>
+  <p>{{ serviceProvider().profession }}</p>
+  <p>{{ serviceProvider().city }}</p>
+  <p>{{ serviceProvider().hourlyRate }} € / heure</p>
+  <p>{{ serviceProvider().description }}</p>
+  <p>
+    @if (serviceProvider().available) {
+      <span class="available">Disponible</span>
+    } @else {
+      <span class="unavailable">Indisponible</span>
+    }
+  </p>
+  <a [routerLink]="['/service-providers', serviceProvider().id]">Voir le profil</a>
+</article>

@@ -1,0 +1,102 @@
+<h2>Ajouter un intervenant</h2>
+<form [formGroup]="serviceProviderForm" (ngSubmit)="onSubmit()">
+  <label for="firstName">Prénom</label>
+  <input id="firstName" type="text" formControlName="firstName" />
+  @if (
+    serviceProviderForm.controls.firstName.touched &&
+    serviceProviderForm.controls.firstName.hasError('required')
+  ) {
+    <p>Le prénom est obligatoire.</p>
+  }
+  @if (
+    serviceProviderForm.controls.firstName.touched &&
+    serviceProviderForm.controls.firstName.hasError('minlength')
+  ) {
+    <p>Le prénom doit contenir au moins 2 caractères.</p>
+  }
+  <label for="lastName">Nom</label>
+  <input id="lastName" type="text" formControlName="lastName" />
+  @if (
+    serviceProviderForm.controls.lastName.touched &&
+    serviceProviderForm.controls.lastName.hasError('required')
+  ) {
+    <p>Le nom est obligatoire.</p>
+  }
+  @if (
+    serviceProviderForm.controls.lastName.touched &&
+    serviceProviderForm.controls.lastName.hasError('minlength')
+  ) {
+    <p>Le nom doit contenir au moins 2 caractères.</p>
+  }
+  <label for="profession">Profession</label>
+  <input id="profession" type="text" formControlName="profession" />
+  @if (
+    serviceProviderForm.controls.profession.touched &&
+    serviceProviderForm.controls.profession.hasError('required')
+  ) {
+    <p>La profession est obligatoire.</p>
+  }
+  @if (
+    serviceProviderForm.controls.profession.touched &&
+    serviceProviderForm.controls.profession.hasError('minlength')
+  ) {
+    <p>La profession doit contenir au moins 2 caractères.</p>
+  }
+  <label for="city">Ville</label>
+  <input id="city" type="text" formControlName="city" />
+  @if (
+    serviceProviderForm.controls.city.touched &&
+    serviceProviderForm.controls.city.hasError('required')
+  ) {
+    <p>La ville est obligatoire.</p>
+  }
+  @if (
+    serviceProviderForm.controls.city.touched &&
+    serviceProviderForm.controls.city.hasError('minlength')
+  ) {
+    <p>La ville doit contenir au moins 2 caractères.</p>
+  }
+  <label for="description">Description</label>
+  <textarea id="description" formControlName="description"></textarea>
+  @if (
+    serviceProviderForm.controls.description.touched &&
+    serviceProviderForm.controls.description.hasError('required')
+  ) {
+    <p>La description est obligatoire.</p>
+  }
+  @if (
+    serviceProviderForm.controls.description.touched &&
+    serviceProviderForm.controls.description.hasError('minlength')
+  ) {
+    <p>La description doit contenir au moins 20 caractères.</p>
+  }
+  <label for="hourlyRate">Tarif horaire</label>
+  <input id="hourlyRate" type="number" formControlName="hourlyRate" min="0" />
+  @if (
+    serviceProviderForm.controls.hourlyRate.touched &&
+    serviceProviderForm.controls.hourlyRate.hasError('required')
+  ) {
+    <p>Le tarif horaire est obligatoire.</p>
+  }
+  @if (
+    serviceProviderForm.controls.hourlyRate.touched &&
+    serviceProviderForm.controls.hourlyRate.hasError('min')
+  ) {
+    <p>Le tarif horaire ne peut pas être négatif.</p>
+  }
+  <label for="available">Disponible immédiatement</label>
+  <input type="checkbox" id="available" formControlName="available" />
+  <label for="imageUrl">URL de l'image (facultatif)</label>
+  <input id="imageUrl" type="url" formControlName="imageUrl" />
+  <button type="submit" [disabled]="isSubmitting()">
+    @if (!isSubmitting()) {
+      Ajouter l'intervenant
+    } @else {
+      Ajout en cours...
+    }
+  </button>
+  @if (submitError(); as message) {
+    <p>{{ message }}</p>
+  }
+</form>
+<a routerLink="/">Annuler</a>
