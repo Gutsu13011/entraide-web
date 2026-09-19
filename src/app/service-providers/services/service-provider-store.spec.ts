@@ -111,4 +111,24 @@ describe('ServiceProviderStore', () => {
     expect(request.request.method).toBe('GET');
     request.flush(mockResponse);
   });
+
+  it('should send filters and sorting options', () => {
+    service
+      .getAll({
+        page: 2,
+        search: ' peintre ',
+        city: ' Lyon ',
+        available: false,
+        sortBy: 'hourlyRate',
+        sortOrder: 'DESC',
+      })
+      .subscribe();
+
+    const request = httpTesting.expectOne(
+      'http://localhost:3000/service-providers?page=2&search=peintre&city=Lyon&available=false&sortBy=hourlyRate&sortOrder=DESC',
+    );
+
+    expect(request.request.method).toBe('GET');
+    request.flush(mockResponse);
+  });
 });

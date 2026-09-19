@@ -11,8 +11,9 @@
 
 form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  align-items: end;
+  gap: 1rem;
   margin-block: 1.5rem;
   padding: 1.25rem;
   border: 1px solid var(--color-border);
@@ -20,18 +21,37 @@ form {
   background-color: var(--color-surface);
 }
 
+.filter-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 label {
-  grid-column: 1 / -1;
   font-weight: 600;
 }
 
-input {
+input,
+select {
+  width: 100%;
   min-width: 0;
   padding: 0.75rem 1rem;
   border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   background-color: var(--color-surface);
   color: var(--color-text);
+}
+
+.filter-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.filter-actions button {
+  flex: 1 1 12rem;
 }
 
 button {
@@ -44,17 +64,16 @@ button {
   cursor: pointer;
 }
 
+.secondary-button {
+  background-color: transparent;
+  color: var(--color-primary);
+}
+
 button:disabled {
   border-color: var(--color-border);
   background-color: var(--color-border);
   color: var(--color-muted);
   cursor: not-allowed;
-}
-
-@media (max-width: 40rem) {
-  form {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .pagination {

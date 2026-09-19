@@ -12,8 +12,17 @@ export class ServiceProviderStore {
 
   getAll(query: ServiceProviderQuery = {}): Observable<PaginatedServiceProviders> {
     const search = query.search?.trim();
+    const city = query.city?.trim();
+
     return this.http.get<PaginatedServiceProviders>(this.apiUrl, {
-      params: { page: query.page ?? 1, ...(search ? { search } : {}) },
+      params: {
+        page: query.page ?? 1,
+        ...(search ? { search } : {}),
+        ...(city ? { city } : {}),
+        ...(query.available === undefined ? {} : { available: query.available }),
+        ...(query.sortBy ? { sortBy: query.sortBy } : {}),
+        ...(query.sortOrder ? { sortOrder: query.sortOrder } : {}),
+      },
     });
   }
 

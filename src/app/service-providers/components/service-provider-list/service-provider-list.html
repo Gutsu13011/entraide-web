@@ -1,14 +1,62 @@
 <h2>Prestataires disponibles</h2>
 <a routerLink="/service-providers/new">Ajouter un intervenant</a>
-<form (submit)="applySearch(); $event.preventDefault()">
-  <label for="provider-search">Rechercher un prestataire</label>
-  <input
-    id="provider-search"
-    type="search"
-    [formControl]="searchControl"
-    placeholder="Profession ou Nom"
-  />
-  <button type="submit" [disabled]="isLoading()">Rechercher</button>
+<form (submit)="applyFilters(); $event.preventDefault()">
+  <div class="filter-field">
+    <label for="provider-search">Rechercher un prestataire</label>
+    <input
+      id="provider-search"
+      type="search"
+      [formControl]="searchControl"
+      placeholder="Profession ou nom"
+    />
+  </div>
+
+  <div class="filter-field">
+    <label for="provider-city">Ville</label>
+    <input
+      id="provider-city"
+      type="search"
+      [formControl]="cityControl"
+      placeholder="Paris, Marseille..."
+    />
+  </div>
+
+  <div class="filter-field">
+    <label for="provider-availability">Disponibilité</label>
+    <select id="provider-availability" [formControl]="availabilityControl">
+      <option value="">Toutes</option>
+      <option value="true">Disponibles</option>
+      <option value="false">Indisponibles</option>
+    </select>
+  </div>
+
+  <div class="filter-field">
+    <label for="provider-sort-by">Trier par</label>
+    <select id="provider-sort-by" [formControl]="sortByControl">
+      <option value="id">Ordre d’ajout</option>
+      <option value="hourlyRate">Tarif horaire</option>
+    </select>
+  </div>
+
+  <div class="filter-field">
+    <label for="provider-sort-order">Ordre</label>
+    <select id="provider-sort-order" [formControl]="sortOrderControl">
+      <option value="ASC">Croissant</option>
+      <option value="DESC">Décroissant</option>
+    </select>
+  </div>
+
+  <div class="filter-actions">
+    <button type="submit" [disabled]="isLoading()">Appliquer les filtres</button>
+    <button
+      type="button"
+      class="secondary-button"
+      [disabled]="isLoading()"
+      (click)="resetFilters()"
+    >
+      Réinitialiser
+    </button>
+  </div>
 </form>
 @if (isLoading()) {
   <p>Chargement des intervenants...</p>

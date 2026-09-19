@@ -63,6 +63,11 @@ describe('ServiceProviderList', () => {
     );
     component.currentPage.set(1);
     component.totalPages.set(2);
+    component.searchTerm.set('plombier');
+    component.cityFilter.set('Paris');
+    component.availabilityFilter.set(false);
+    component.sortBy.set('hourlyRate');
+    component.sortOrder.set('DESC');
     await fixture.whenStable();
 
     let button = element.querySelector<HTMLButtonElement>('button[aria-label="Page suivante"]');
@@ -73,7 +78,14 @@ describe('ServiceProviderList', () => {
     await fixture.whenStable();
     button = element.querySelector<HTMLButtonElement>('button[aria-label="Page suivante"]');
     expect(button).toHaveProperty('disabled', true);
-    expect(serviceProvidersStoreStub.getAll).toHaveBeenLastCalledWith({ page: 2, search: '' });
+    expect(serviceProvidersStoreStub.getAll).toHaveBeenLastCalledWith({
+      page: 2,
+      search: 'plombier',
+      city: 'Paris',
+      available: false,
+      sortBy: 'hourlyRate',
+      sortOrder: 'DESC',
+    });
     expect(component.currentPage()).toBe(2);
   });
 
@@ -113,11 +125,18 @@ describe('ServiceProviderList', () => {
     await fixture.whenStable();
     button = element.querySelector<HTMLButtonElement>('button[aria-label="Page précédente"]');
     expect(button).toHaveProperty('disabled', true);
-    expect(serviceProvidersStoreStub.getAll).toHaveBeenLastCalledWith({ page: 1, search: '' });
+    expect(serviceProvidersStoreStub.getAll).toHaveBeenLastCalledWith({
+      page: 1,
+      search: '',
+      city: '',
+      available: undefined,
+      sortBy: 'id',
+      sortOrder: 'ASC',
+    });
     expect(component.currentPage()).toBe(1);
   });
 
-  it('should search from the first page when submitting the form', async () => {
+  it('should apply filters from the first page when submitting the form', async () => {
     const element = fixture.nativeElement as HTMLElement;
 
     serviceProvidersStoreStub.getAll.mockReturnValue(
@@ -143,6 +162,10 @@ describe('ServiceProviderList', () => {
     );
 
     component.searchControl.setValue('    plombier ');
+    component.cityControl.setValue('    Paris ');
+    component.availabilityControl.setValue('false');
+    component.sortByControl.setValue('hourlyRate');
+    component.sortOrderControl.setValue('DESC');
     const form = element.querySelector<HTMLFormElement>('form');
 
     expect(form).not.toBe(null);
@@ -151,9 +174,50 @@ describe('ServiceProviderList', () => {
     expect(serviceProvidersStoreStub.getAll).toHaveBeenLastCalledWith({
       page: 1,
       search: 'plombier',
+      city: 'Paris',
+      available: false,
+      sortBy: 'hourlyRate',
+      sortOrder: 'DESC',
     });
 
     expect(component.searchTerm()).toBe('plombier');
+    expect(component.cityFilter()).toBe('Paris');
+    expect(component.availabilityFilter()).toBe(false);
+    expect(component.sortBy()).toBe('hourlyRate');
+    expect(component.sortOrder()).toBe('DESC');
     expect(component.currentPage()).toBe(1);
+  });
+
+  it('should reset filters and load the first page', async () => {
+    const element = fixture.nativeElement as HTMLElement;
+
+    component.searchControl.setValue('plombier');
+    component.cityControl.setValue('Paris');
+    component.availabilityControl.setValue('false');
+    component.sortByControl.setValue('hourlyRate');
+    component.sortOrderControl.setValue('DESC');
+    component.applyFilters();
+    await fixture.whenStable();
+
+    const resetButton = element.querySelector<HTMLButtonElement>('.secondary-button');
+
+    expect(resetButton).not.toBe(null);
+    resetButton?.click();
+    await fixture.whenStable();
+
+    expect(component.searchControl.value).toBe('');
+    expect(component.cityControl.value).toBe('');
+    expect(component.availabilityControl.value).toBe('');
+    expect(component.sortByControl.value).toBe('id');
+    expect(component.sortOrderControl.value).toBe('ASC');
+
+    expect(serviceProvidersStoreStub.getAll).toHaveBeenLastCalledWith({
+      page: 1,
+      search: '',
+      city: '',
+      available: undefined,
+      sortBy: 'id',
+      sortOrder: 'ASC',
+    });
   });
 });

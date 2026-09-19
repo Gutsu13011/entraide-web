@@ -14,7 +14,7 @@ service.
 
 - Responsive layouts for the provider list, detail page and creation form.
 - Paginated service provider list
-- Search with pagination
+- Search, city and availability filters, sorting and pagination
 - Service provider detail pages
 - Service provider creation through a validated reactive form
 - HTTP integration with the NestJS backend
@@ -59,7 +59,7 @@ To explore the application with 12 fictional profiles, follow the
 "Demo data" section in the `entraide-api` README.
 
 The demo dataset provides two pages of results with the default page size,
-so you can try pagination and search immediately.
+so you can try pagination, search, filters and sorting immediately.
 
 You can also use the creation form to add service providers manually.
 
@@ -88,7 +88,6 @@ creates a production build.
 ## Planned improvements
 
 - Further visual and accessibility improvements
-- Additional provider filters and sorting controls
 - Authentication and user accounts
 - Multiple services per provider
 - Service requests and status tracking
