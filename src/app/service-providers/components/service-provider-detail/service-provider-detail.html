@@ -17,5 +17,43 @@
       }
     </p>
   </article>
+  <section class="reviews" aria-labelledby="reviews-title">
+    <h3 id="reviews-title">Avis</h3>
+
+    @if (isReviewLoading()) {
+      <p>Chargement des avis...</p>
+    } @else if (reviewsErrorMessage(); as message) {
+      <p>{{ message }}</p>
+    } @else {
+      @if (reviewSummary(); as summary) {
+        @if (summary.averageRating !== null) {
+          <p>
+            Note moyenne :
+            <strong>{{ summary.averageRating | number: '1.1-1' }} / 5</strong>
+            — {{ summary.reviewCount }} avis
+          </p>
+        }
+      }
+
+      @for (review of reviews(); track review.id) {
+        <article class="review">
+          <header>
+            <strong>{{ review.authorName }}</strong>
+            <span [attr.aria-label]="'Note : ' + review.rating + ' sur 5'">
+              {{ review.rating }} / 5
+            </span>
+          </header>
+
+          <p>{{ review.comment }}</p>
+
+          <time [attr.datetime]="review.createdAt">
+            {{ review.createdAt | date: 'dd/MM/yyyy' }}
+          </time>
+        </article>
+      } @empty {
+        <p>Aucun avis pour le moment.</p>
+      }
+    }
+  </section>
 }
 <a routerLink="/">Retour à la liste</a>

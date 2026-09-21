@@ -49,3 +49,41 @@ a {
   margin-top: 1.5rem;
   font-weight: 600;
 }
+
+.reviews {
+  margin-top: 2rem;
+}
+
+.reviews h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.5rem;
+}
+
+.review {
+  margin-top: 1rem;
+  padding: 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  background-color: var(--color-surface);
+}
+
+.review header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.review header span {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.review p {
+  margin: 0.75rem 0;
+}
+
+.review time {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}

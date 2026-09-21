@@ -16,6 +16,7 @@ service.
 - Paginated service provider list
 - Search, city and availability filters, sorting and pagination
 - Service provider detail pages
+- Review summaries and review lists on provider detail pages
 - Service provider creation through a validated reactive form
 - HTTP integration with the NestJS backend
 - Loading, empty and error states
