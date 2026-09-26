@@ -17,6 +17,7 @@ service.
 - Search, city and availability filters, sorting and pagination
 - Service provider detail pages
 - Review summaries and review lists on provider detail pages
+- Multiple service offerings per provider, with independent free or hourly pricing on detail pages
 - Service provider creation through a validated reactive form
 - HTTP integration with the NestJS backend
 - Loading, empty and error states
@@ -62,6 +63,9 @@ To explore the application with 12 fictional profiles, follow the
 The demo dataset provides two pages of results with the default page size,
 so you can try pagination, search, filters and sorting immediately.
 
+The demo dataset also includes 14 service offerings: 12 hourly and 2 free.
+Open Sophie Martin or Hugo Petit to see both pricing types on one profile.
+
 You can also use the creation form to add service providers manually.
 
 ## Quality checks
@@ -90,6 +94,6 @@ creates a production build.
 
 - Further visual and accessibility improvements
 - Authentication and user accounts
-- Multiple services per provider
+- Creating and managing service offerings from the frontend
 - Service requests and status tracking
 - Reviews linked to completed service requests

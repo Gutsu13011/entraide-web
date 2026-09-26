@@ -7,6 +7,8 @@ import { ReviewStore } from '../../../reviews/services/review-store';
 import type { Review } from '../../../models/review.model';
 import type { ReviewSummary } from '../../../models/review-summary.model';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { ServiceOffering, ServicePricingType } from '../../../models/service-offering.model';
+import { ServiceOfferingStore } from '../../../service-offerings/services/service-offering-store';
 
 @Component({
   imports: [RouterLink, DatePipe, DecimalPipe],
@@ -44,11 +46,25 @@ export class ServiceProviderDetail {
           this.reviewsErrorMessage.set('Impossible de charger les avis.');
         },
       });
+
+    this.serviceOfferingsStore
+      .getAll(this.serviceProviderId)
+      .pipe(finalize(() => this.isServiceOfferingsLoading.set(false)))
+      .subscribe({
+        next: (serviceOfferings) => {
+          this.serviceOfferings.set(serviceOfferings);
+        },
+        error: (error) => {
+          console.error('error loading serviceOfferings in ServiceProviderDetail', error);
+          this.serviceOfferingErrorMessage.set('Impossible de charger les offres.');
+        },
+      });
   }
 
   private readonly route: ActivatedRoute = inject(ActivatedRoute);
   private readonly serviceProviderStore: ServiceProviderStore = inject(ServiceProviderStore);
   private readonly reviewStore: ReviewStore = inject(ReviewStore);
+  private readonly serviceOfferingsStore: ServiceOfferingStore = inject(ServiceOfferingStore);
 
   readonly isLoading = signal<boolean>(true);
   readonly errorMessage = signal<null | string>(null);
@@ -58,4 +74,8 @@ export class ServiceProviderDetail {
   readonly reviewsErrorMessage = signal<null | string>(null);
   readonly reviews = signal<Review[]>([]);
   readonly reviewSummary = signal<ReviewSummary>({ reviewCount: 0, averageRating: null });
+  readonly isServiceOfferingsLoading = signal<boolean>(true);
+  readonly serviceOfferingErrorMessage = signal<string | null>(null);
+  readonly serviceOfferings = signal<ServiceOffering[]>([]);
+  readonly servicePricingType = ServicePricingType;
 }

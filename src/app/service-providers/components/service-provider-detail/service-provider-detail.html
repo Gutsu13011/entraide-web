@@ -7,7 +7,6 @@
     <h2>{{ provider.firstName }} {{ provider.lastName }}</h2>
     <p>{{ provider.profession }}</p>
     <p>{{ provider.city }}</p>
-    <p>{{ provider.hourlyRate }} € / heure</p>
     <p>{{ provider.description }}</p>
     <p>
       @if (provider.available) {
@@ -17,6 +16,31 @@
       }
     </p>
   </article>
+  <section class="service-offerings" aria-labelledby="service-offerings-title">
+    <h3 id="service-offerings-title">Offres de Services</h3>
+
+    @if (isServiceOfferingsLoading()) {
+      <p>Chargement des offres de services...</p>
+    } @else if (serviceOfferingErrorMessage(); as message) {
+      <p>{{ message }}</p>
+    } @else {
+      @for (serviceOffering of serviceOfferings(); track serviceOffering.id) {
+        <article class="service-offering">
+          <header>
+            <strong>{{ serviceOffering.title }}</strong>
+            <p>{{ serviceOffering.description }}</p>
+            @if (serviceOffering.pricingType === servicePricingType.FREE) {
+              <p>Gratuit</p>
+            } @else {
+              <p>{{ serviceOffering.hourlyRate }}€/heure</p>
+            }
+          </header>
+        </article>
+      } @empty {
+        <p>Aucune offre de service pour le moment.</p>
+      }
+    }
+  </section>
   <section class="reviews" aria-labelledby="reviews-title">
     <h3 id="reviews-title">Avis</h3>
 
