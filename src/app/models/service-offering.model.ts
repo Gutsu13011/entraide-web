@@ -10,3 +10,12 @@ export interface ServiceOffering {
   hourlyRate: number | null;
   serviceProviderId: number;
 }
+
+export type CreateServiceOffering =
+  | { title: string; description: string; pricingType: ServicePricingType.FREE; hourlyRate?: never }
+  | {
+      title: string;
+      description: string;
+      hourlyRate: number;
+      pricingType: ServicePricingType.HOURLY;
+    };

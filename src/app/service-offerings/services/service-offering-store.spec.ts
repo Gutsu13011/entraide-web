@@ -1,7 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 import { ServiceOfferingStore } from './service-offering-store';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { ServiceOffering, ServicePricingType } from '../../models/service-offering.model';
+import {
+  CreateServiceOffering,
+  ServiceOffering,
+  ServicePricingType,
+} from '../../models/service-offering.model';
 
 describe('ServiceOfferingStore', () => {
   let service: ServiceOfferingStore;
@@ -47,5 +51,35 @@ describe('ServiceOfferingStore', () => {
     expect(request.request.method).toBe('GET');
     request.flush(mockServiceOfferingsResponse);
     expect(expectedServiceOfferings).toEqual(mockServiceOfferingsResponse);
+  });
+
+  it('should add free service offering', () => {
+    const createServiceOfferingMock: CreateServiceOffering = {
+      title: 'title',
+      description: 'description',
+      pricingType: ServicePricingType.FREE,
+    };
+    const createServiceOfferingResponse: ServiceOffering = {
+      id: 1,
+      title: 'title',
+      description: 'description',
+      pricingType: ServicePricingType.FREE,
+      hourlyRate: null,
+      serviceProviderId: 7,
+    };
+
+    let expectedCreateServiceOffering: ServiceOffering | undefined;
+
+    service
+      .add(7, createServiceOfferingMock)
+      .subscribe((response) => (expectedCreateServiceOffering = response));
+
+    const request = httpTesting.expectOne(
+      'http://localhost:3000/service-providers/7/service-offerings',
+    );
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual(createServiceOfferingMock);
+    request.flush(createServiceOfferingResponse);
+    expect(expectedCreateServiceOffering).toEqual(createServiceOfferingResponse);
   });
 });

@@ -1,0 +1,68 @@
+<form [formGroup]="serviceOfferingForm" (ngSubmit)="onSubmit()">
+  <label for="title">Titre</label>
+  <input id="title" formControlName="title" type="text" />
+  @if (
+    serviceOfferingForm.controls.title.touched &&
+    serviceOfferingForm.controls.title.hasError('required')
+  ) {
+    <p>Le titre est obligatoire.</p>
+  }
+  @if (
+    serviceOfferingForm.controls.title.touched &&
+    serviceOfferingForm.controls.title.hasError('minlength')
+  ) {
+    <p>Le titre doit contenir au moins 2 caractères.</p>
+  }
+  <label for="description">Description</label>
+  <textarea id="description" formControlName="description"></textarea>
+  @if (
+    serviceOfferingForm.controls.description.touched &&
+    serviceOfferingForm.controls.description.hasError('required')
+  ) {
+    <p>La description est obligatoire.</p>
+  }
+  @if (
+    serviceOfferingForm.controls.description.touched &&
+    serviceOfferingForm.controls.description.hasError('minlength')
+  ) {
+    <p>La description doit contenir au moins 2 caractères.</p>
+  }
+  <label for="pricingType">Type de tarification</label>
+  <select id="pricingType" formControlName="pricingType">
+    <option [value]="servicePricingType.HOURLY">À l'heure</option>
+    <option [value]="servicePricingType.FREE">Gratuit</option>
+  </select>
+  @if (
+    serviceOfferingForm.controls.pricingType.touched &&
+    serviceOfferingForm.controls.pricingType.hasError('required')
+  ) {
+    <p>Le type de tarification est obligatoire.</p>
+  }
+  @if (serviceOfferingForm.controls.pricingType.value === servicePricingType.HOURLY) {
+    <label for="hourlyRate">Taux horaire</label>
+    <input id="hourlyRate" type="number" formControlName="hourlyRate" min="0.01" />
+    @if (
+      serviceOfferingForm.controls.hourlyRate.touched &&
+      serviceOfferingForm.controls.hourlyRate.hasError('required')
+    ) {
+      <p>Le tarif horaire est obligatoire.</p>
+    }
+    @if (
+      serviceOfferingForm.controls.hourlyRate.touched &&
+      serviceOfferingForm.controls.hourlyRate.hasError('min')
+    ) {
+      <p>Le tarif horaire doit être supérieur à 0.</p>
+    }
+  }
+  <button type="submit" [disabled]="isSubmitting()">
+    @if (isSubmitting()) {
+      Ajout en cours
+    } @else {
+      Ajouter l'offre de service
+    }
+  </button>
+  @if (submitError(); as message) {
+    <p>{{ message }}</p>
+  }
+</form>
+<a [routerLink]="['/service-providers', serviceProviderId]">Retour à la fiche</a>

@@ -18,6 +18,9 @@
   </article>
   <section class="service-offerings" aria-labelledby="service-offerings-title">
     <h3 id="service-offerings-title">Offres de Services</h3>
+    <a [routerLink]="['/service-providers', provider.id, 'service-offerings', 'new']"
+      >Ajouter une offre de service</a
+    >
 
     @if (isServiceOfferingsLoading()) {
       <p>Chargement des offres de services...</p>
