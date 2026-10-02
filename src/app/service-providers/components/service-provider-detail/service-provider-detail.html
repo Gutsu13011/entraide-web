@@ -1,10 +1,10 @@
 @if (isLoading()) {
   <p>Chargement de l'intervenant...</p>
 } @else if (errorMessage(); as message) {
-  <p>{{ message }}</p>
+  <p class="error-message" role="alert">{{ message }}</p>
 } @else if (serviceProvider(); as provider) {
   <article class="service-provider-card">
-    <h2>{{ provider.firstName }} {{ provider.lastName }}</h2>
+    <h2 class="page-title">{{ provider.firstName }} {{ provider.lastName }}</h2>
     <p>{{ provider.profession }}</p>
     <p>{{ provider.city }}</p>
     <p>{{ provider.description }}</p>
@@ -25,7 +25,7 @@
     @if (isServiceOfferingsLoading()) {
       <p>Chargement des offres de services...</p>
     } @else if (serviceOfferingErrorMessage(); as message) {
-      <p>{{ message }}</p>
+      <p class="error-message" role="alert">{{ message }}</p>
     } @else {
       @for (serviceOffering of serviceOfferings(); track serviceOffering.id) {
         <article class="service-offering">
@@ -35,7 +35,7 @@
             @if (serviceOffering.pricingType === servicePricingType.FREE) {
               <p>Gratuit</p>
             } @else {
-              <p>{{ serviceOffering.hourlyRate }}€/heure</p>
+              <p>{{ serviceOffering.hourlyRate }} € / heure</p>
             }
           </header>
         </article>
@@ -50,7 +50,7 @@
     @if (isReviewLoading()) {
       <p>Chargement des avis...</p>
     } @else if (reviewsErrorMessage(); as message) {
-      <p>{{ message }}</p>
+      <p class="error-message" role="alert">{{ message }}</p>
     } @else {
       @if (reviewSummary(); as summary) {
         @if (summary.averageRating !== null) {

@@ -134,7 +134,7 @@ describe('ServiceProviderDetail', () => {
     expect(element?.textContent).toContain('title1');
     expect(element?.textContent).toContain('title2');
     expect(element?.textContent).toContain('Gratuit');
-    expect(element?.textContent).toContain('20€/heure');
+    expect(element?.textContent).toContain('20 € / heure');
   });
 
   it('should load and display service offerings without data', async () => {

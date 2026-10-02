@@ -29,3 +29,70 @@ header p {
 main {
   padding-block: 2rem 3rem;
 }
+
+header nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+header nav .session-user {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.625rem 1rem;
+  border-radius: 0.5rem;
+  background-color: var(--color-primary);
+  color: #ffffff;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+header nav a,
+header nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+header nav button {
+  cursor: pointer;
+}
+
+header nav a:hover,
+header nav button:not(:disabled):hover {
+  border-color: var(--color-primary);
+  background-color: #e6f4ef;
+}
+
+header nav a:hover {
+  text-decoration: underline;
+}
+
+header nav .account-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-start: auto;
+}
+
+@media (max-width: 40rem) {
+  header nav .account-actions {
+    width: 100%;
+    margin-inline-start: 0;
+  }
+}

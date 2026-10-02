@@ -1,4 +1,4 @@
-<h2>Prestataires disponibles</h2>
+<h2 class="page-title">Prestataires disponibles</h2>
 <a routerLink="/service-providers/new">Ajouter un intervenant</a>
 <form (submit)="applyFilters(); $event.preventDefault()">
   <div class="filter-field">
@@ -61,7 +61,7 @@
 @if (isLoading()) {
   <p>Chargement des intervenants...</p>
 } @else if (errorMessage(); as message) {
-  <p>{{ message }}</p>
+  <p class="error-message" role="alert">{{ message }}</p>
 } @else {
   <p>Nombre total de résultats: {{ total() }}</p>
   @if (totalPages() > 0) {

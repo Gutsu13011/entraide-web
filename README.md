@@ -23,6 +23,10 @@ service.
 - HTTP integration with the NestJS backend
 - Loading, empty and error states
 - Automated tests with Vitest
+- Account registration through a validated reactive form
+- Login and logout, with the authenticated user's name displayed in the header
+- Shared authentication state managed with NgRx SignalStore
+- Automatic navigation to the provider list after successful login
 
 ## Project status
 
@@ -30,7 +34,11 @@ The application is under active development.
 A first responsive interface is implemented, with further visual and
 accessibility improvements planned.
 
-Authentication, user accounts and service request workflows are also planned.
+Account registration, login and logout are implemented.
+Authentication state is currently stored in memory and is cleared when
+the page is reloaded.
+
+Service request workflows are planned.
 The current version is intended for local development and demonstration.
 
 ## Requirements
@@ -48,14 +56,14 @@ Then, in a separate terminal, run these commands from the `entraide-web`
 directory:
 
 ```bash
-npm ci
+npm ci &&
 npm start
 ```
 
 Open http://localhost:4200 in your browser.
 
-The frontend currently connects to:
-http://localhost:3000/service-providers
+The frontend currently connects to the API at:
+http://localhost:3000
 
 A fresh backend database contains no service providers.
 To explore the application with 12 fictional profiles, follow the
@@ -69,6 +77,21 @@ Open Sophie Martin or Hugo Petit to see both pricing types on one profile.
 
 You can also use the creation forms to add service providers and free or hourly
 service offerings manually. Open a provider detail page to add an offering.
+
+## Authentication
+
+Apply the backend database migrations before testing authentication,
+including the migration that creates the users table.
+
+Click "Créer un compte" to register with your first name, last name,
+email and a password of at least 15 characters.
+
+After registration, the application opens the login page.
+Successful login retrieves the user profile and opens the provider list.
+The header displays the user's name and a logout button.
+
+Failed login keeps the entered values and displays an error message.
+Reloading the application clears the session and requires another login.
 
 ## Quality checks
 
@@ -95,7 +118,9 @@ creates a production build.
 ## Planned improvements
 
 - Further visual and accessibility improvements
-- Authentication and user accounts
+- Session persistence and frontend route guards
+- A mobile account menu with the authenticated user's name always visible
+- Login redirection using `replaceUrl: true` to improve browser back navigation
 - Managing existing service offerings from the frontend
 - Service requests and status tracking
 - Reviews linked to completed service requests

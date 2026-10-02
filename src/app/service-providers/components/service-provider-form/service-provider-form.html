@@ -1,4 +1,4 @@
-<h2>Ajouter un intervenant</h2>
+<h2 class="page-title">Ajouter un intervenant</h2>
 <form [formGroup]="serviceProviderForm" (ngSubmit)="onSubmit()">
   <label for="firstName">Prénom</label>
   <input id="firstName" type="text" formControlName="firstName" />
@@ -6,13 +6,13 @@
     serviceProviderForm.controls.firstName.touched &&
     serviceProviderForm.controls.firstName.hasError('required')
   ) {
-    <p>Le prénom est obligatoire.</p>
+    <p class="field-error">Le prénom est obligatoire.</p>
   }
   @if (
     serviceProviderForm.controls.firstName.touched &&
     serviceProviderForm.controls.firstName.hasError('minlength')
   ) {
-    <p>Le prénom doit contenir au moins 2 caractères.</p>
+    <p class="field-error">Le prénom doit contenir au moins 2 caractères.</p>
   }
   <label for="lastName">Nom</label>
   <input id="lastName" type="text" formControlName="lastName" />
@@ -20,13 +20,13 @@
     serviceProviderForm.controls.lastName.touched &&
     serviceProviderForm.controls.lastName.hasError('required')
   ) {
-    <p>Le nom est obligatoire.</p>
+    <p class="field-error">Le nom est obligatoire.</p>
   }
   @if (
     serviceProviderForm.controls.lastName.touched &&
     serviceProviderForm.controls.lastName.hasError('minlength')
   ) {
-    <p>Le nom doit contenir au moins 2 caractères.</p>
+    <p class="field-error">Le nom doit contenir au moins 2 caractères.</p>
   }
   <label for="profession">Profession</label>
   <input id="profession" type="text" formControlName="profession" />
@@ -34,13 +34,13 @@
     serviceProviderForm.controls.profession.touched &&
     serviceProviderForm.controls.profession.hasError('required')
   ) {
-    <p>La profession est obligatoire.</p>
+    <p class="field-error">La profession est obligatoire.</p>
   }
   @if (
     serviceProviderForm.controls.profession.touched &&
     serviceProviderForm.controls.profession.hasError('minlength')
   ) {
-    <p>La profession doit contenir au moins 2 caractères.</p>
+    <p class="field-error">La profession doit contenir au moins 2 caractères.</p>
   }
   <label for="city">Ville</label>
   <input id="city" type="text" formControlName="city" />
@@ -48,13 +48,13 @@
     serviceProviderForm.controls.city.touched &&
     serviceProviderForm.controls.city.hasError('required')
   ) {
-    <p>La ville est obligatoire.</p>
+    <p class="field-error">La ville est obligatoire.</p>
   }
   @if (
     serviceProviderForm.controls.city.touched &&
     serviceProviderForm.controls.city.hasError('minlength')
   ) {
-    <p>La ville doit contenir au moins 2 caractères.</p>
+    <p class="field-error">La ville doit contenir au moins 2 caractères.</p>
   }
   <label for="description">Description</label>
   <textarea id="description" formControlName="description"></textarea>
@@ -62,13 +62,13 @@
     serviceProviderForm.controls.description.touched &&
     serviceProviderForm.controls.description.hasError('required')
   ) {
-    <p>La description est obligatoire.</p>
+    <p class="field-error">La description est obligatoire.</p>
   }
   @if (
     serviceProviderForm.controls.description.touched &&
     serviceProviderForm.controls.description.hasError('minlength')
   ) {
-    <p>La description doit contenir au moins 20 caractères.</p>
+    <p class="field-error">La description doit contenir au moins 20 caractères.</p>
   }
   <label for="hourlyRate">Tarif horaire</label>
   <input id="hourlyRate" type="number" formControlName="hourlyRate" min="0.01" step="0.01" />
@@ -76,13 +76,13 @@
     serviceProviderForm.controls.hourlyRate.touched &&
     serviceProviderForm.controls.hourlyRate.hasError('required')
   ) {
-    <p>Le tarif horaire est obligatoire.</p>
+    <p class="field-error">Le tarif horaire est obligatoire.</p>
   }
   @if (
     serviceProviderForm.controls.hourlyRate.touched &&
     serviceProviderForm.controls.hourlyRate.hasError('min')
   ) {
-    <p>Le tarif horaire doit être supérieur à 0.</p>
+    <p class="field-error">Le tarif horaire doit être supérieur à 0.</p>
   }
   <label for="available">Disponible immédiatement</label>
   <input type="checkbox" id="available" formControlName="available" />
@@ -96,7 +96,7 @@
     }
   </button>
   @if (submitError(); as message) {
-    <p>{{ message }}</p>
+    <p class="error-message" role="alert">{{ message }}</p>
   }
 </form>
 <a routerLink="/">Annuler</a>

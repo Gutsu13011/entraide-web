@@ -16,7 +16,6 @@ export class ServiceProviderForm {
 
   readonly isSubmitting = signal<boolean>(false);
   readonly submitError = signal<null | string>(null);
-
   readonly serviceProviderForm = new FormGroup({
     firstName: new FormControl('', {
       nonNullable: true,
