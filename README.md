@@ -27,6 +27,8 @@ service.
 - Login and logout, with the authenticated user's name displayed in the header
 - Shared authentication state managed with NgRx SignalStore
 - Automatic navigation to the provider list after successful login
+- Automatic bearer token attachment to requests targeting the backend API
+- Authentication guards for provider and service offering creation pages
 
 ## Project status
 
@@ -93,6 +95,15 @@ The header displays the user's name and a logout button.
 Failed login keeps the entered values and displays an error message.
 Reloading the application clears the session and requires another login.
 
+Creating a service provider or a service offering requires login.
+Unauthenticated visitors opening either creation page are redirected to login.
+
+An HTTP interceptor attaches the session's access token to requests targeting
+`http://localhost:3000`, while preserving any existing Authorization header.
+Requests targeting other origins do not receive the session token.
+
+The backend independently enforces authentication on protected endpoints.
+
 ## Quality checks
 
 Run the tests once:
@@ -118,7 +129,7 @@ creates a production build.
 ## Planned improvements
 
 - Further visual and accessibility improvements
-- Session persistence and frontend route guards
+- Session persistence
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
 - Managing existing service offerings from the frontend
