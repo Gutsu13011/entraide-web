@@ -16,6 +16,7 @@ describe('ServiceProviderStore', () => {
       hourlyRate: 25,
       imageUrl: '',
       available: true,
+      ownerUserId: null,
     },
     {
       id: 1,
@@ -27,6 +28,7 @@ describe('ServiceProviderStore', () => {
       hourlyRate: 70,
       imageUrl: '',
       available: false,
+      ownerUserId: null,
     },
   ];
   const mockResponse: PaginatedServiceProviders = {

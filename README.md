@@ -20,6 +20,8 @@ service.
 - Multiple service offerings per provider, with independent free or hourly pricing on detail pages
 - Service offering creation through a validated reactive form
 - Service provider creation through a validated reactive form
+- Account first and last names prefilled and read-only in the provider creation form
+- Service offering creation link displayed only to the provider owner
 - HTTP integration with the NestJS backend
 - Loading, empty and error states
 - Automated tests with Vitest
@@ -77,13 +79,14 @@ so you can try pagination, search, filters and sorting immediately.
 The demo dataset also includes 14 service offerings: 12 hourly and 2 free.
 Open Sophie Martin or Hugo Petit to see both pricing types on one profile.
 
-You can also use the creation forms to add service providers and free or hourly
-service offerings manually. Open a provider detail page to add an offering.
+After logging in, you can create your own provider profile and add free or
+hourly offerings from its detail page. Demo profiles have no account owner,
+so their add-offering link is hidden.
 
 ## Authentication
 
-Apply the backend database migrations before testing authentication,
-including the migration that creates the users table.
+Apply the backend database migrations before testing authentication and
+provider ownership, including the users table and provider owner migrations.
 
 Click "Créer un compte" to register with your first name, last name,
 email and a password of at least 15 characters.
@@ -102,7 +105,18 @@ An HTTP interceptor attaches the session's access token to requests targeting
 `http://localhost:3000`, while preserving any existing Authorization header.
 Requests targeting other origins do not receive the session token.
 
-The backend independently enforces authentication on protected endpoints.
+The backend independently enforces authentication on protected endpoints
+and ownership checks for provider updates, deletion and offering creation.
+
+Each account can create at most one provider profile. The creation form
+prefills the account's first and last names and displays them as read-only.
+The API also derives these names and the profile owner from the authenticated
+account when creating the profile.
+
+The add-offering link appears only when the connected account owns the
+provider profile. It remains hidden for other accounts, unauthenticated
+visitors and profiles without an owner. The API independently rejects
+unauthorized offering creation, including direct requests.
 
 ## Quality checks
 
@@ -132,6 +146,7 @@ creates a production build.
 - Session persistence
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
+- Editing and deleting the authenticated user's provider profile from the frontend
 - Managing existing service offerings from the frontend
 - Service requests and status tracking
 - Reviews linked to completed service requests

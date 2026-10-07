@@ -30,7 +30,7 @@ export class ServiceProviderStore {
     return this.http.get<ServiceProvider>(`${this.apiUrl}/${id}`);
   }
 
-  add(serviceProvider: Omit<ServiceProvider, 'id'>): Observable<ServiceProvider> {
+  add(serviceProvider: Omit<ServiceProvider, 'id' | 'ownerUserId'>): Observable<ServiceProvider> {
     return this.http.post<ServiceProvider>(this.apiUrl, serviceProvider);
   }
 }

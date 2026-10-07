@@ -8,4 +8,5 @@ export interface ServiceProvider {
   hourlyRate: number;
   imageUrl: string;
   available: boolean;
+  ownerUserId: number | null;
 }

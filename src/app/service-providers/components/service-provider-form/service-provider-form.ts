@@ -1,8 +1,10 @@
 import { Component, inject, signal } from '@angular/core';
+import type { OnInit } from '@angular/core';
 import { FormControl, ReactiveFormsModule, FormGroup, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ServiceProviderStore } from '../../services/service-provider-store';
 import { finalize } from 'rxjs';
+import { AuthSession } from '../../../auth/services/auth-session';
 
 @Component({
   imports: [ReactiveFormsModule, RouterLink],
@@ -10,9 +12,10 @@ import { finalize } from 'rxjs';
   styleUrl: './service-provider-form.scss',
   templateUrl: './service-provider-form.html',
 })
-export class ServiceProviderForm {
+export class ServiceProviderForm implements OnInit {
   private readonly serviceProviderStore = inject(ServiceProviderStore);
   private readonly router = inject(Router);
+  private readonly authSession = inject(AuthSession);
 
   readonly isSubmitting = signal<boolean>(false);
   readonly submitError = signal<null | string>(null);
@@ -47,6 +50,19 @@ export class ServiceProviderForm {
       nonNullable: true,
     }),
   });
+
+  ngOnInit(): void {
+    const currentUser = this.authSession.currentUser();
+
+    if (currentUser === null) {
+      return;
+    }
+
+    this.serviceProviderForm.patchValue({
+      firstName: currentUser.firstName,
+      lastName: currentUser.lastName,
+    });
+  }
 
   onSubmit(): void {
     if (this.serviceProviderForm.invalid) {

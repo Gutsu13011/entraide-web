@@ -10,6 +10,9 @@ import type { Review } from '../../../models/review.model';
 import type { ReviewSummary } from '../../../models/review-summary.model';
 import { ServiceOfferingStore } from '../../../service-offerings/services/service-offering-store';
 import { ServiceOffering, ServicePricingType } from '../../../models/service-offering.model';
+import { CurrentUserResponse } from '../../../models/auth.model';
+import { signal } from '@angular/core';
+import { AuthSession } from '../../../auth/services/auth-session';
 
 describe('ServiceProviderDetail', () => {
   const mockServiceProvider: ServiceProvider = {
@@ -22,6 +25,13 @@ describe('ServiceProviderDetail', () => {
     hourlyRate: 25,
     imageUrl: '',
     available: true,
+    ownerUserId: 42,
+  };
+  const currentUserMock: CurrentUserResponse = {
+    id: 42,
+    firstName: 'John',
+    lastName: 'Doe',
+    email: 'johndoe@mail.com',
   };
   const serviceProvidersStoreStub = {
     getById: () => of(mockServiceProvider),
@@ -65,6 +75,9 @@ describe('ServiceProviderDetail', () => {
   const serviceOfferingsStoreStub = {
     getAll: vi.fn(),
   };
+  const authSessionStub = {
+    currentUser: signal<CurrentUserResponse | null>(null),
+  };
 
   let component: ServiceProviderDetail;
   let harness: RouterTestingHarness;
@@ -73,6 +86,7 @@ describe('ServiceProviderDetail', () => {
     reviewStoreStub.getAll.mockReset().mockReturnValue(of(mockReviews));
     reviewStoreStub.getSummary.mockReset().mockReturnValue(of(mockReviewSummary));
     serviceOfferingsStoreStub.getAll.mockReset().mockReturnValue(of(mockServiceOfferings));
+    authSessionStub.currentUser.set(null);
 
     await TestBed.configureTestingModule({
       imports: [ServiceProviderDetail],
@@ -95,6 +109,10 @@ describe('ServiceProviderDetail', () => {
           provide: ServiceOfferingStore,
           useValue: serviceOfferingsStoreStub,
         },
+        {
+          provide: AuthSession,
+          useValue: authSessionStub,
+        },
       ],
     }).compileComponents();
 
@@ -107,6 +125,51 @@ describe('ServiceProviderDetail', () => {
   it('should create', async () => {
     await openDetail();
     expect(component).toBeTruthy();
+  });
+
+  it('should show the add-offering link to the provider owner', async () => {
+    authSessionStub.currentUser.set(currentUserMock);
+    await openDetail();
+    expect(component.isOwner()).toBe(true);
+    expect(
+      harness.routeNativeElement?.querySelector(
+        'a[href="/service-providers/7/service-offerings/new"]',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('should hide the add-offering link from another user', async () => {
+    authSessionStub.currentUser.set({ ...currentUserMock, id: 7 });
+    await openDetail();
+    expect(component.isOwner()).toBe(false);
+    expect(
+      harness.routeNativeElement?.querySelector(
+        'a[href="/service-providers/7/service-offerings/new"]',
+      ),
+    ).toBeNull();
+  });
+
+  it('should hide the add-offering link when no user is authenticated', async () => {
+    await openDetail();
+    expect(component.isOwner()).toBe(false);
+    expect(
+      harness.routeNativeElement?.querySelector(
+        'a[href="/service-providers/7/service-offerings/new"]',
+      ),
+    ).toBeNull();
+  });
+
+  it('should hide the add-offering link when the provider has no owner', async () => {
+    authSessionStub.currentUser.set(currentUserMock);
+    await openDetail();
+    component.serviceProvider.set({ ...mockServiceProvider, ownerUserId: null });
+    harness.detectChanges();
+    expect(component.isOwner()).toBe(false);
+    expect(
+      harness.routeNativeElement?.querySelector(
+        'a[href="/service-providers/7/service-offerings/new"]',
+      ),
+    ).toBeNull();
   });
 
   it('should load and display reviews with their summary', async () => {

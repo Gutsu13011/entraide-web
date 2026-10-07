@@ -1,7 +1,7 @@
 <h2 class="page-title">Ajouter un intervenant</h2>
 <form [formGroup]="serviceProviderForm" (ngSubmit)="onSubmit()">
   <label for="firstName">Prénom</label>
-  <input id="firstName" type="text" formControlName="firstName" />
+  <input id="firstName" type="text" formControlName="firstName" readonly />
   @if (
     serviceProviderForm.controls.firstName.touched &&
     serviceProviderForm.controls.firstName.hasError('required')
@@ -15,7 +15,7 @@
     <p class="field-error">Le prénom doit contenir au moins 2 caractères.</p>
   }
   <label for="lastName">Nom</label>
-  <input id="lastName" type="text" formControlName="lastName" />
+  <input id="lastName" type="text" formControlName="lastName" readonly />
   @if (
     serviceProviderForm.controls.lastName.touched &&
     serviceProviderForm.controls.lastName.hasError('required')

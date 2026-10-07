@@ -14,6 +14,7 @@ describe('ServiceProviderCard', () => {
     hourlyRate: 25,
     imageUrl: '',
     available: true,
+    ownerUserId: null,
   };
 
   let component: ServiceProviderCard;

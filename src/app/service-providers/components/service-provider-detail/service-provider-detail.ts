@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ServiceProviderStore } from '../../services/service-provider-store';
 import type { ServiceProvider } from '../../../models/service-provider.model';
@@ -9,6 +9,7 @@ import type { ReviewSummary } from '../../../models/review-summary.model';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { ServiceOffering, ServicePricingType } from '../../../models/service-offering.model';
 import { ServiceOfferingStore } from '../../../service-offerings/services/service-offering-store';
+import { AuthSession } from '../../../auth/services/auth-session';
 
 @Component({
   imports: [RouterLink, DatePipe, DecimalPipe],
@@ -65,6 +66,7 @@ export class ServiceProviderDetail {
   private readonly serviceProviderStore: ServiceProviderStore = inject(ServiceProviderStore);
   private readonly reviewStore: ReviewStore = inject(ReviewStore);
   private readonly serviceOfferingsStore: ServiceOfferingStore = inject(ServiceOfferingStore);
+  private readonly authSession = inject(AuthSession);
 
   readonly isLoading = signal<boolean>(true);
   readonly errorMessage = signal<null | string>(null);
@@ -78,4 +80,13 @@ export class ServiceProviderDetail {
   readonly serviceOfferingErrorMessage = signal<string | null>(null);
   readonly serviceOfferings = signal<ServiceOffering[]>([]);
   readonly servicePricingType = ServicePricingType;
+  readonly isOwner = computed(() => {
+    const currentUser = this.authSession.currentUser();
+    const serviceProvider = this.serviceProvider();
+
+    if (currentUser === null || serviceProvider === undefined) {
+      return false;
+    }
+    return currentUser.id === serviceProvider.ownerUserId;
+  });
 }
