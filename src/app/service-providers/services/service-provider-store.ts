@@ -37,4 +37,8 @@ export class ServiceProviderStore {
   update(id: number, changes: UpdateServiceProvider): Observable<ServiceProvider> {
     return this.http.patch<ServiceProvider>(`${this.apiUrl}/${id}`, changes);
   }
+
+  remove(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.apiUrl}/${id}`);
+  }
 }

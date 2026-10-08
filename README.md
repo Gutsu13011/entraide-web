@@ -20,7 +20,8 @@ service.
 - Multiple service offerings per provider, with independent free or hourly pricing on detail pages
 - Service offering creation through a validated reactive form
 - Service provider creation and editing through a shared validated reactive form
-- Provider edit link displayed only to the profile owner
+- Provider edit link and delete button displayed only to the profile owner
+- Provider deletion with confirmation, pending state and retry after failure
 - Existing profile data loaded before editing, with loading and error states
 - Failed updates preserve entered values and allow another attempt
 - Account first and last names prefilled and read-only in the provider creation form
@@ -86,8 +87,14 @@ After logging in, you can create your own provider profile, edit it through
 "Modifier ma fiche", and add free or hourly offerings from its detail page.
 Saving an edit returns to the updated detail page. Cancelling an edit returns
 to the detail page without saving changes.
+
+"Supprimer ma fiche" asks for confirmation before permanently deleting the
+profile and its related offerings and reviews. Cancelling leaves the profile
+unchanged. Successful deletion opens the provider list; failed deletion keeps
+the detail page visible and allows another attempt.
+
 Demo profiles have no account owner, so their edit and add-offering links
-are hidden.
+and delete button are hidden.
 
 ## Authentication
 
@@ -120,16 +127,22 @@ prefills the account's first and last names and displays them as read-only.
 The API also derives these names and the profile owner from the authenticated
 account when creating the profile.
 
-The edit and add-offering links appear only when the connected account owns
-the provider profile. They remain hidden for other accounts, unauthenticated
-visitors and profiles without an owner. The edit form also checks ownership
-after loading the profile and redirects non-owners to its detail page.
-The API independently rejects unauthorized updates and offering creation,
-including direct requests.
+The edit and add-offering links and the delete button appear only when the
+connected account owns the provider profile. They remain hidden for other
+accounts, unauthenticated visitors and profiles without an owner.
+The edit form also checks ownership after loading the profile and redirects
+non-owners to its detail page.
+The API independently rejects unauthorized updates, deletion and offering
+creation, including direct requests.
 
 Editing uses `/service-providers/:id/edit` in the frontend and sends a PATCH
 request to `/service-providers/:id` in the API. The form does not send the
 profile ID or owner ID in the request body.
+
+Deletion sends a DELETE request to `/service-providers/:id`. The API returns
+204 No Content on success. The frontend prevents duplicate deletion requests
+while one is pending. Deleting a provider profile does not delete the user
+account.
 
 ## Quality checks
 
@@ -159,7 +172,6 @@ creates a production build.
 - Session persistence
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
-- Deleting the authenticated user's provider profile from the frontend
 - Managing existing service offerings from the frontend
 - Service requests and status tracking
 - Reviews linked to completed service requests

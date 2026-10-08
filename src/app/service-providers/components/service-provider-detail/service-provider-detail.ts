@@ -1,5 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink, Router } from '@angular/router';
 import { ServiceProviderStore } from '../../services/service-provider-store';
 import type { ServiceProvider } from '../../../models/service-provider.model';
 import { finalize, forkJoin } from 'rxjs';
@@ -67,6 +67,7 @@ export class ServiceProviderDetail {
   private readonly reviewStore: ReviewStore = inject(ReviewStore);
   private readonly serviceOfferingsStore: ServiceOfferingStore = inject(ServiceOfferingStore);
   private readonly authSession = inject(AuthSession);
+  private readonly router = inject(Router);
 
   readonly isLoading = signal<boolean>(true);
   readonly errorMessage = signal<null | string>(null);
@@ -89,4 +90,34 @@ export class ServiceProviderDetail {
     }
     return currentUser.id === serviceProvider.ownerUserId;
   });
+  readonly isDeleting = signal<boolean>(false);
+  readonly deleteError = signal<string | null>(null);
+
+  onDelete(): void {
+    if (this.isDeleting() || !this.isOwner()) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'Supprimer définitivement votre fiche ainsi que toutes ses offres et tous ses avis ?',
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    this.isDeleting.set(true);
+    this.deleteError.set(null);
+    this.serviceProviderStore
+      .remove(this.serviceProviderId)
+      .pipe(finalize(() => this.isDeleting.set(false)))
+      .subscribe({
+        next: () => {
+          this.router.navigate(['/']);
+        },
+        error: () => {
+          this.deleteError.set('Impossible de supprimer cette fiche. Veuillez réessayer.');
+        },
+      });
+  }
 }

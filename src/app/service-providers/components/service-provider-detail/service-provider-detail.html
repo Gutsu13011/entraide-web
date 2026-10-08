@@ -15,6 +15,18 @@
         <span class="unavailable">Indisponible</span>
       }
     </p>
+    @if (isOwner()) {
+      <button type="button" class="danger-button" (click)="onDelete()" [disabled]="isDeleting()">
+        @if (isDeleting()) {
+          Suppression en cours...
+        } @else {
+          Supprimer ma fiche
+        }
+      </button>
+      @if (deleteError(); as message) {
+        <p class="error-message" role="alert">{{ message }}</p>
+      }
+    }
   </article>
   <section class="service-offerings" aria-labelledby="service-offerings-title">
     <h3 id="service-offerings-title">Offres de Services</h3>

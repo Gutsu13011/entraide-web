@@ -1,8 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { ServiceProviderDetail } from './service-provider-detail';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { ServiceProviderStore } from '../../services/service-provider-store';
 import type { ServiceProvider } from '../../../models/service-provider.model';
 import { ReviewStore } from '../../../reviews/services/review-store';
@@ -35,6 +35,7 @@ describe('ServiceProviderDetail', () => {
   };
   const serviceProvidersStoreStub = {
     getById: () => of(mockServiceProvider),
+    remove: vi.fn(),
   };
   const mockReviews: Review[] = [
     {
@@ -83,6 +84,7 @@ describe('ServiceProviderDetail', () => {
   let harness: RouterTestingHarness;
 
   beforeEach(async () => {
+    serviceProvidersStoreStub.remove.mockReset();
     reviewStoreStub.getAll.mockReset().mockReturnValue(of(mockReviews));
     reviewStoreStub.getSummary.mockReset().mockReturnValue(of(mockReviewSummary));
     serviceOfferingsStoreStub.getAll.mockReset().mockReturnValue(of(mockServiceOfferings));
@@ -118,6 +120,10 @@ describe('ServiceProviderDetail', () => {
 
     harness = await RouterTestingHarness.create();
   });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   const openDetail = async () => {
     component = await harness.navigateByUrl('/service-providers/7', ServiceProviderDetail);
   };
@@ -227,5 +233,128 @@ describe('ServiceProviderDetail', () => {
     expect(element?.textContent).toContain('Alice Martin');
     expect(element?.textContent).toContain('Excellent service.');
     expect(element?.textContent).toContain('19/09/2026');
+  });
+
+  it('should not delete the provider when the owner cancels confirmation', async () => {
+    authSessionStub.currentUser.set(currentUserMock);
+    await openDetail();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const navigateSpy = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const button = harness.routeNativeElement!.querySelector<HTMLButtonElement>('.danger-button');
+
+    expect(button).not.toBeNull();
+    expect(button!.textContent?.trim()).toBe('Supprimer ma fiche');
+    button!.click();
+
+    expect(confirmSpy).toHaveBeenCalledExactlyOnceWith(
+      'Supprimer définitivement votre fiche ainsi que toutes ses offres et tous ses avis ?',
+    );
+    expect(serviceProvidersStoreStub.remove).not.toHaveBeenCalled();
+    expect(navigateSpy).not.toHaveBeenCalled();
+    expect(component.isDeleting()).toBe(false);
+    expect(component.serviceProvider()).toEqual(mockServiceProvider);
+  });
+
+  it.each([
+    { scenario: 'no user is authenticated', user: null, provider: mockServiceProvider },
+    {
+      scenario: 'another user is authenticated',
+      user: { ...currentUserMock, id: mockServiceProvider.id },
+      provider: mockServiceProvider,
+    },
+    {
+      scenario: 'the provider has no owner',
+      user: currentUserMock,
+      provider: { ...mockServiceProvider, ownerUserId: null },
+    },
+    { scenario: 'the provider is not loaded', user: currentUserMock, provider: undefined },
+  ])('should hide deletion and ignore direct calls when $scenario', async ({ user, provider }) => {
+    authSessionStub.currentUser.set(user);
+    await openDetail();
+    component.serviceProvider.set(provider);
+    harness.detectChanges();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const navigateSpy = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+
+    expect(harness.routeNativeElement!.querySelector('.danger-button')).toBeNull();
+    component.onDelete();
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(serviceProvidersStoreStub.remove).not.toHaveBeenCalled();
+    expect(navigateSpy).not.toHaveBeenCalled();
+    expect(component.isDeleting()).toBe(false);
+  });
+
+  it('should disable deletion while pending and navigate only after success', async () => {
+    authSessionStub.currentUser.set(currentUserMock);
+    const removalResponse$ = new Subject<void>();
+    serviceProvidersStoreStub.remove.mockReturnValue(removalResponse$.asObservable());
+    await openDetail();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const navigateSpy = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const button = harness.routeNativeElement!.querySelector<HTMLButtonElement>('.danger-button')!;
+
+    button.click();
+    harness.detectChanges();
+
+    expect(serviceProvidersStoreStub.remove).toHaveBeenCalledExactlyOnceWith(
+      mockServiceProvider.id,
+    );
+    expect(component.isDeleting()).toBe(true);
+    expect(button.disabled).toBe(true);
+    expect(button.textContent?.trim()).toBe('Suppression en cours...');
+    expect(navigateSpy).not.toHaveBeenCalled();
+
+    component.onDelete();
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(serviceProvidersStoreStub.remove).toHaveBeenCalledTimes(1);
+
+    removalResponse$.next(undefined);
+    removalResponse$.complete();
+    harness.detectChanges();
+
+    expect(component.isDeleting()).toBe(false);
+    expect(button.disabled).toBe(false);
+    expect(button.textContent?.trim()).toBe('Supprimer ma fiche');
+    expect(navigateSpy).toHaveBeenCalledExactlyOnceWith(['/']);
+    expect(component.deleteError()).toBeNull();
+  });
+
+  it('should preserve the detail page and allow retry after a deletion failure', async () => {
+    authSessionStub.currentUser.set(currentUserMock);
+    serviceProvidersStoreStub.remove
+      .mockReturnValueOnce(throwError(() => new Error('Suppression impossible')))
+      .mockReturnValueOnce(of(undefined));
+    await openDetail();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const navigateSpy = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const button = harness.routeNativeElement!.querySelector<HTMLButtonElement>('.danger-button')!;
+
+    button.click();
+    harness.detectChanges();
+
+    expect(component.isDeleting()).toBe(false);
+    expect(button.disabled).toBe(false);
+    expect(component.serviceProvider()).toEqual(mockServiceProvider);
+    expect(harness.routeNativeElement!.querySelector('.service-provider-card')).not.toBeNull();
+    expect(component.deleteError()).toBe(
+      'Impossible de supprimer cette fiche. Veuillez réessayer.',
+    );
+    expect(harness.routeNativeElement!.querySelector('[role="alert"]')?.textContent?.trim()).toBe(
+      'Impossible de supprimer cette fiche. Veuillez réessayer.',
+    );
+    expect(navigateSpy).not.toHaveBeenCalled();
+
+    button.click();
+    harness.detectChanges();
+
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(serviceProvidersStoreStub.remove).toHaveBeenCalledTimes(2);
+    expect(serviceProvidersStoreStub.remove).toHaveBeenNthCalledWith(1, mockServiceProvider.id);
+    expect(serviceProvidersStoreStub.remove).toHaveBeenNthCalledWith(2, mockServiceProvider.id);
+    expect(component.deleteError()).toBeNull();
+    expect(harness.routeNativeElement!.querySelector('[role="alert"]')).toBeNull();
+    expect(component.isDeleting()).toBe(false);
+    expect(navigateSpy).toHaveBeenCalledExactlyOnceWith(['/']);
   });
 });

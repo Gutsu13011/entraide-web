@@ -133,4 +133,33 @@ describe('ServiceProviderStore', () => {
     expect(request.request.method).toBe('GET');
     request.flush(mockResponse);
   });
+
+  it('should delete the requested provider and accept a 204 response', () => {
+    const nextSpy = vi.fn();
+    const completeSpy = vi.fn();
+    const errorSpy = vi.fn();
+    service.remove(7).subscribe({ next: nextSpy, complete: completeSpy, error: errorSpy });
+
+    const request = httpTesting.expectOne('http://localhost:3000/service-providers/7');
+    expect(request.request.method).toBe('DELETE');
+    expect(request.request.body).toBeNull();
+    request.flush(null, { status: 204, statusText: 'No Content' });
+
+    expect(nextSpy).toHaveBeenCalledTimes(1);
+    expect(completeSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('should propagate a forbidden deletion response to the subscriber', () => {
+    const nextSpy = vi.fn();
+    const errorSpy = vi.fn();
+    service.remove(7).subscribe({ next: nextSpy, error: errorSpy });
+
+    const request = httpTesting.expectOne('http://localhost:3000/service-providers/7');
+    request.flush({ message: 'Forbidden' }, { status: 403, statusText: 'Forbidden' });
+
+    expect(nextSpy).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0][0].status).toBe(403);
+  });
 });

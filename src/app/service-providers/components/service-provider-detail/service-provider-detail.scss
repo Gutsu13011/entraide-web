@@ -12,6 +12,32 @@
   overflow-wrap: anywhere;
 }
 
+
+button.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-danger);
+  border-radius: 0.5rem;
+  background-color: var(--color-danger);
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.danger-button:not(:disabled):hover {
+  border-color: #811e1b;
+  background-color: #811e1b;
+}
+
+button.danger-button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
 p:not(.error-message) {
   margin: 0 0 1rem;
 }
