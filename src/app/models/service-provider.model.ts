@@ -10,3 +10,5 @@ export interface ServiceProvider {
   available: boolean;
   ownerUserId: number | null;
 }
+
+export type UpdateServiceProvider = Partial<Omit<ServiceProvider, 'id' | 'ownerUserId'>>;

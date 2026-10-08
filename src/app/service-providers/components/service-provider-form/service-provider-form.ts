@@ -1,7 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import type { OnInit } from '@angular/core';
 import { FormControl, ReactiveFormsModule, FormGroup, Validators } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ServiceProviderStore } from '../../services/service-provider-store';
 import { finalize } from 'rxjs';
 import { AuthSession } from '../../../auth/services/auth-session';
@@ -16,6 +16,7 @@ export class ServiceProviderForm implements OnInit {
   private readonly serviceProviderStore = inject(ServiceProviderStore);
   private readonly router = inject(Router);
   private readonly authSession = inject(AuthSession);
+  private readonly route = inject(ActivatedRoute);
 
   readonly isSubmitting = signal<boolean>(false);
   readonly submitError = signal<null | string>(null);
@@ -50,11 +51,38 @@ export class ServiceProviderForm implements OnInit {
       nonNullable: true,
     }),
   });
+  readonly serviceProviderId: number | null = this.route.snapshot.paramMap.get('id')
+    ? Number(this.route.snapshot.paramMap.get('id'))
+    : null;
+  readonly isEditMode = this.serviceProviderId !== null;
+  readonly isLoading = signal<boolean>(false);
+  readonly loadError = signal<string | null>(null);
 
   ngOnInit(): void {
     const currentUser = this.authSession.currentUser();
 
     if (currentUser === null) {
+      return;
+    }
+
+    if (this.serviceProviderId !== null) {
+      this.isLoading.set(true);
+      this.loadError.set(null);
+      this.serviceProviderStore
+        .getById(this.serviceProviderId)
+        .pipe(finalize(() => this.isLoading.set(false)))
+        .subscribe({
+          next: (serviceProvider) => {
+            if (serviceProvider.ownerUserId === currentUser.id) {
+              this.serviceProviderForm.patchValue(serviceProvider);
+            } else {
+              this.router.navigate(['/service-providers', serviceProvider.id]);
+            }
+          },
+          error: () => {
+            this.loadError.set('Impossible de charger cette fiche. Veuillez réessayer.');
+          },
+        });
       return;
     }
 
@@ -65,6 +93,8 @@ export class ServiceProviderForm implements OnInit {
   }
 
   onSubmit(): void {
+    if (this.isLoading() || this.loadError() !== null) return;
+
     if (this.serviceProviderForm.invalid) {
       this.serviceProviderForm.markAllAsTouched();
       return;
@@ -76,22 +106,22 @@ export class ServiceProviderForm implements OnInit {
 
     if (formValue.hourlyRate === null) return;
 
+    const payload = { ...formValue, hourlyRate: formValue.hourlyRate };
+    const request$ =
+      this.isEditMode && this.serviceProviderId !== null
+        ? this.serviceProviderStore.update(this.serviceProviderId, payload)
+        : this.serviceProviderStore.add(payload);
+
     this.isSubmitting.set(true);
     this.submitError.set(null);
-    this.serviceProviderStore
-      .add({
-        ...formValue,
-        hourlyRate: formValue.hourlyRate,
-      })
-      .pipe(finalize(() => this.isSubmitting.set(false)))
-      .subscribe({
-        next: (newServiceProvider) => {
-          this.router.navigate(['/service-providers', newServiceProvider.id]);
-        },
-        error: (error) => {
-          console.error('error in ServiceProviderForm', error);
-          this.submitError.set('Impossible d’ajouter cet intervenant. Veuillez réessayer.');
-        },
-      });
+    request$.pipe(finalize(() => this.isSubmitting.set(false))).subscribe({
+      next: (savedServiceProvider) => {
+        this.router.navigate(['/service-providers', savedServiceProvider.id]);
+      },
+      error: (error) => {
+        console.error('error in ServiceProviderForm', error);
+        this.submitError.set('Impossible d’enregistrer cette fiche. Veuillez réessayer.');
+      },
+    });
   }
 }

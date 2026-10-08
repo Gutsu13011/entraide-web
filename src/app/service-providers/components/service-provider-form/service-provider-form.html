@@ -1,102 +1,108 @@
-<h2 class="page-title">Ajouter un intervenant</h2>
-<form [formGroup]="serviceProviderForm" (ngSubmit)="onSubmit()">
-  <label for="firstName">Prénom</label>
-  <input id="firstName" type="text" formControlName="firstName" readonly />
-  @if (
-    serviceProviderForm.controls.firstName.touched &&
-    serviceProviderForm.controls.firstName.hasError('required')
-  ) {
-    <p class="field-error">Le prénom est obligatoire.</p>
-  }
-  @if (
-    serviceProviderForm.controls.firstName.touched &&
-    serviceProviderForm.controls.firstName.hasError('minlength')
-  ) {
-    <p class="field-error">Le prénom doit contenir au moins 2 caractères.</p>
-  }
-  <label for="lastName">Nom</label>
-  <input id="lastName" type="text" formControlName="lastName" readonly />
-  @if (
-    serviceProviderForm.controls.lastName.touched &&
-    serviceProviderForm.controls.lastName.hasError('required')
-  ) {
-    <p class="field-error">Le nom est obligatoire.</p>
-  }
-  @if (
-    serviceProviderForm.controls.lastName.touched &&
-    serviceProviderForm.controls.lastName.hasError('minlength')
-  ) {
-    <p class="field-error">Le nom doit contenir au moins 2 caractères.</p>
-  }
-  <label for="profession">Profession</label>
-  <input id="profession" type="text" formControlName="profession" />
-  @if (
-    serviceProviderForm.controls.profession.touched &&
-    serviceProviderForm.controls.profession.hasError('required')
-  ) {
-    <p class="field-error">La profession est obligatoire.</p>
-  }
-  @if (
-    serviceProviderForm.controls.profession.touched &&
-    serviceProviderForm.controls.profession.hasError('minlength')
-  ) {
-    <p class="field-error">La profession doit contenir au moins 2 caractères.</p>
-  }
-  <label for="city">Ville</label>
-  <input id="city" type="text" formControlName="city" />
-  @if (
-    serviceProviderForm.controls.city.touched &&
-    serviceProviderForm.controls.city.hasError('required')
-  ) {
-    <p class="field-error">La ville est obligatoire.</p>
-  }
-  @if (
-    serviceProviderForm.controls.city.touched &&
-    serviceProviderForm.controls.city.hasError('minlength')
-  ) {
-    <p class="field-error">La ville doit contenir au moins 2 caractères.</p>
-  }
-  <label for="description">Description</label>
-  <textarea id="description" formControlName="description"></textarea>
-  @if (
-    serviceProviderForm.controls.description.touched &&
-    serviceProviderForm.controls.description.hasError('required')
-  ) {
-    <p class="field-error">La description est obligatoire.</p>
-  }
-  @if (
-    serviceProviderForm.controls.description.touched &&
-    serviceProviderForm.controls.description.hasError('minlength')
-  ) {
-    <p class="field-error">La description doit contenir au moins 20 caractères.</p>
-  }
-  <label for="hourlyRate">Tarif horaire</label>
-  <input id="hourlyRate" type="number" formControlName="hourlyRate" min="0.01" step="0.01" />
-  @if (
-    serviceProviderForm.controls.hourlyRate.touched &&
-    serviceProviderForm.controls.hourlyRate.hasError('required')
-  ) {
-    <p class="field-error">Le tarif horaire est obligatoire.</p>
-  }
-  @if (
-    serviceProviderForm.controls.hourlyRate.touched &&
-    serviceProviderForm.controls.hourlyRate.hasError('min')
-  ) {
-    <p class="field-error">Le tarif horaire doit être supérieur à 0.</p>
-  }
-  <label for="available">Disponible immédiatement</label>
-  <input type="checkbox" id="available" formControlName="available" />
-  <label for="imageUrl">URL de l'image (facultatif)</label>
-  <input id="imageUrl" type="url" formControlName="imageUrl" />
-  <button type="submit" [disabled]="isSubmitting()">
-    @if (!isSubmitting()) {
-      Ajouter l'intervenant
-    } @else {
-      Ajout en cours...
+<h2 class="page-title">{{ isEditMode ? 'Modifier ma fiche' : 'Ajouter un intervenant' }}</h2>
+@if (isLoading()) {
+  <p role="status">Chargement de la fiche...</p>
+} @else if (loadError(); as message) {
+  <p class="error-message" role="alert">{{ message }}</p>
+} @else {
+  <form [formGroup]="serviceProviderForm" (ngSubmit)="onSubmit()">
+    <label for="firstName">Prénom</label>
+    <input id="firstName" type="text" formControlName="firstName" readonly />
+    @if (
+      serviceProviderForm.controls.firstName.touched &&
+      serviceProviderForm.controls.firstName.hasError('required')
+    ) {
+      <p class="field-error">Le prénom est obligatoire.</p>
     }
-  </button>
-  @if (submitError(); as message) {
-    <p class="error-message" role="alert">{{ message }}</p>
-  }
-</form>
-<a routerLink="/">Annuler</a>
+    @if (
+      serviceProviderForm.controls.firstName.touched &&
+      serviceProviderForm.controls.firstName.hasError('minlength')
+    ) {
+      <p class="field-error">Le prénom doit contenir au moins 2 caractères.</p>
+    }
+    <label for="lastName">Nom</label>
+    <input id="lastName" type="text" formControlName="lastName" readonly />
+    @if (
+      serviceProviderForm.controls.lastName.touched &&
+      serviceProviderForm.controls.lastName.hasError('required')
+    ) {
+      <p class="field-error">Le nom est obligatoire.</p>
+    }
+    @if (
+      serviceProviderForm.controls.lastName.touched &&
+      serviceProviderForm.controls.lastName.hasError('minlength')
+    ) {
+      <p class="field-error">Le nom doit contenir au moins 2 caractères.</p>
+    }
+    <label for="profession">Profession</label>
+    <input id="profession" type="text" formControlName="profession" />
+    @if (
+      serviceProviderForm.controls.profession.touched &&
+      serviceProviderForm.controls.profession.hasError('required')
+    ) {
+      <p class="field-error">La profession est obligatoire.</p>
+    }
+    @if (
+      serviceProviderForm.controls.profession.touched &&
+      serviceProviderForm.controls.profession.hasError('minlength')
+    ) {
+      <p class="field-error">La profession doit contenir au moins 2 caractères.</p>
+    }
+    <label for="city">Ville</label>
+    <input id="city" type="text" formControlName="city" />
+    @if (
+      serviceProviderForm.controls.city.touched &&
+      serviceProviderForm.controls.city.hasError('required')
+    ) {
+      <p class="field-error">La ville est obligatoire.</p>
+    }
+    @if (
+      serviceProviderForm.controls.city.touched &&
+      serviceProviderForm.controls.city.hasError('minlength')
+    ) {
+      <p class="field-error">La ville doit contenir au moins 2 caractères.</p>
+    }
+    <label for="description">Description</label>
+    <textarea id="description" formControlName="description"></textarea>
+    @if (
+      serviceProviderForm.controls.description.touched &&
+      serviceProviderForm.controls.description.hasError('required')
+    ) {
+      <p class="field-error">La description est obligatoire.</p>
+    }
+    @if (
+      serviceProviderForm.controls.description.touched &&
+      serviceProviderForm.controls.description.hasError('minlength')
+    ) {
+      <p class="field-error">La description doit contenir au moins 20 caractères.</p>
+    }
+    <label for="hourlyRate">Tarif horaire</label>
+    <input id="hourlyRate" type="number" formControlName="hourlyRate" min="0.01" step="0.01" />
+    @if (
+      serviceProviderForm.controls.hourlyRate.touched &&
+      serviceProviderForm.controls.hourlyRate.hasError('required')
+    ) {
+      <p class="field-error">Le tarif horaire est obligatoire.</p>
+    }
+    @if (
+      serviceProviderForm.controls.hourlyRate.touched &&
+      serviceProviderForm.controls.hourlyRate.hasError('min')
+    ) {
+      <p class="field-error">Le tarif horaire doit être supérieur à 0.</p>
+    }
+    <label for="available">Disponible immédiatement</label>
+    <input type="checkbox" id="available" formControlName="available" />
+    <label for="imageUrl">URL de l'image (facultatif)</label>
+    <input id="imageUrl" type="url" formControlName="imageUrl" />
+    <button type="submit" [disabled]="isSubmitting()">
+      @if (!isSubmitting()) {
+        {{ isEditMode ? 'Enregistrer les modifications' : "Ajouter l'intervenant" }}
+      } @else {
+        {{ isEditMode ? 'Enregistrement en cours...' : 'Ajout en cours...' }}
+      }
+    </button>
+    @if (submitError(); as message) {
+      <p class="error-message" role="alert">{{ message }}</p>
+    }
+  </form>
+}
+<a [routerLink]="isEditMode ? ['/service-providers', serviceProviderId] : ['/']">Annuler</a>

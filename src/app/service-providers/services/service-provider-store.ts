@@ -1,5 +1,5 @@
 import { Service, inject } from '@angular/core';
-import { ServiceProvider } from '../../models/service-provider.model';
+import { ServiceProvider, UpdateServiceProvider } from '../../models/service-provider.model';
 import { PaginatedServiceProviders } from '../../models/paginated-service-providers.model';
 import { ServiceProviderQuery } from '../../models/service-provider-query.model';
 import { HttpClient } from '@angular/common/http';
@@ -32,5 +32,9 @@ export class ServiceProviderStore {
 
   add(serviceProvider: Omit<ServiceProvider, 'id' | 'ownerUserId'>): Observable<ServiceProvider> {
     return this.http.post<ServiceProvider>(this.apiUrl, serviceProvider);
+  }
+
+  update(id: number, changes: UpdateServiceProvider): Observable<ServiceProvider> {
+    return this.http.patch<ServiceProvider>(`${this.apiUrl}/${id}`, changes);
   }
 }

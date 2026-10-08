@@ -15,6 +15,11 @@ export const routes: Routes = [
     component: ServiceOfferingForm,
     canActivate: [authGuard],
   },
+  {
+    path: 'service-providers/:id/edit',
+    component: ServiceProviderForm,
+    canActivate: [authGuard],
+  },
   { path: 'service-providers/:id', component: ServiceProviderDetail },
   { path: 'login', component: LoginForm },
   { path: 'register', component: RegisterForm },
