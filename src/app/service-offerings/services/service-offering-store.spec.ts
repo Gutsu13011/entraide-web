@@ -5,6 +5,7 @@ import {
   CreateServiceOffering,
   ServiceOffering,
   ServicePricingType,
+  UpdateServiceOffering,
 } from '../../models/service-offering.model';
 
 describe('ServiceOfferingStore', () => {
@@ -81,5 +82,80 @@ describe('ServiceOfferingStore', () => {
     expect(request.request.body).toEqual(createServiceOfferingMock);
     request.flush(createServiceOfferingResponse);
     expect(expectedCreateServiceOffering).toEqual(createServiceOfferingResponse);
+  });
+
+  describe('update', () => {
+    it('should patch a service offering and return the updated offering', () => {
+      const changes: UpdateServiceOffering = { title: 'Nouveau titre' };
+      const updatedOffering: ServiceOffering = {
+        id: 12,
+        serviceProviderId: 7,
+        title: 'Nouveau titre',
+        description: 'Conseils pour entretenir votre installation.',
+        pricingType: ServicePricingType.HOURLY,
+        hourlyRate: 35,
+      };
+      let receivedOffering: ServiceOffering | undefined;
+
+      service.update(7, 12, changes).subscribe((response) => (receivedOffering = response));
+
+      const request = httpTesting.expectOne(
+        'http://localhost:3000/service-providers/7/service-offerings/12',
+      );
+      expect(request.request.method).toBe('PATCH');
+      expect(request.request.body).toEqual({ title: 'Nouveau titre' });
+      request.flush(updatedOffering);
+      expect(receivedOffering).toEqual(updatedOffering);
+    });
+
+    it('should preserve an explicit null hourly rate in a free offering update', () => {
+      const changes: UpdateServiceOffering = {
+        pricingType: ServicePricingType.FREE,
+        hourlyRate: null,
+      };
+      const updatedOffering: ServiceOffering = {
+        id: 12,
+        serviceProviderId: 7,
+        title: 'Conseil gratuit',
+        description: 'Conseils pour entretenir votre installation.',
+        pricingType: ServicePricingType.FREE,
+        hourlyRate: null,
+      };
+      let receivedOffering: ServiceOffering | undefined;
+
+      service.update(7, 12, changes).subscribe((response) => (receivedOffering = response));
+
+      const request = httpTesting.expectOne(
+        'http://localhost:3000/service-providers/7/service-offerings/12',
+      );
+      expect(request.request.method).toBe('PATCH');
+      expect(request.request.body).toEqual({
+        pricingType: ServicePricingType.FREE,
+        hourlyRate: null,
+      });
+      request.flush(updatedOffering);
+      expect(receivedOffering).toEqual(updatedOffering);
+    });
+
+    it('should propagate a forbidden update response to the subscriber', () => {
+      const nextSpy = vi.fn();
+      const errorSpy = vi.fn();
+      service.update(7, 12, { title: 'Nouveau titre' }).subscribe({
+        next: nextSpy,
+        error: errorSpy,
+      });
+
+      const request = httpTesting.expectOne(
+        'http://localhost:3000/service-providers/7/service-offerings/12',
+      );
+      const errorBody = { message: 'You do not own this service provider profile' };
+      expect(request.request.method).toBe('PATCH');
+      request.flush(errorBody, { status: 403, statusText: 'Forbidden' });
+
+      expect(nextSpy).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ status: 403, error: errorBody }),
+      );
+    });
   });
 });

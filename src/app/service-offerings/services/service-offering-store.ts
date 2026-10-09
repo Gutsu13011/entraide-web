@@ -1,7 +1,11 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Service } from '@angular/core';
 import { Observable } from 'rxjs';
-import { CreateServiceOffering, ServiceOffering } from '../../models/service-offering.model';
+import {
+  CreateServiceOffering,
+  ServiceOffering,
+  UpdateServiceOffering,
+} from '../../models/service-offering.model';
 
 @Service()
 export class ServiceOfferingStore {
@@ -19,6 +23,17 @@ export class ServiceOfferingStore {
     return this.http.post<ServiceOffering>(
       `${this.url}/${serviceProviderId}/service-offerings`,
       createServiceOffering,
+    );
+  }
+
+  update(
+    serviceProviderId: number,
+    id: number,
+    changes: UpdateServiceOffering,
+  ): Observable<ServiceOffering> {
+    return this.http.patch<ServiceOffering>(
+      `${this.url}/${serviceProviderId}/service-offerings/${id}`,
+      changes,
     );
   }
 }

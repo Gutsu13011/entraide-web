@@ -1,69 +1,77 @@
-<h2 class="page-title">Ajouter une offre de service</h2>
-<form [formGroup]="serviceOfferingForm" (ngSubmit)="onSubmit()">
-  <label for="title">Titre</label>
-  <input id="title" formControlName="title" type="text" />
-  @if (
-    serviceOfferingForm.controls.title.touched &&
-    serviceOfferingForm.controls.title.hasError('required')
-  ) {
-    <p class="field-error">Le titre est obligatoire.</p>
-  }
-  @if (
-    serviceOfferingForm.controls.title.touched &&
-    serviceOfferingForm.controls.title.hasError('minlength')
-  ) {
-    <p class="field-error">Le titre doit contenir au moins 2 caractères.</p>
-  }
-  <label for="description">Description</label>
-  <textarea id="description" formControlName="description"></textarea>
-  @if (
-    serviceOfferingForm.controls.description.touched &&
-    serviceOfferingForm.controls.description.hasError('required')
-  ) {
-    <p class="field-error">La description est obligatoire.</p>
-  }
-  @if (
-    serviceOfferingForm.controls.description.touched &&
-    serviceOfferingForm.controls.description.hasError('minlength')
-  ) {
-    <p class="field-error">La description doit contenir au moins 2 caractères.</p>
-  }
-  <label for="pricingType">Type de tarification</label>
-  <select id="pricingType" formControlName="pricingType">
-    <option [value]="servicePricingType.HOURLY">À l'heure</option>
-    <option [value]="servicePricingType.FREE">Gratuit</option>
-  </select>
-  @if (
-    serviceOfferingForm.controls.pricingType.touched &&
-    serviceOfferingForm.controls.pricingType.hasError('required')
-  ) {
-    <p class="field-error">Le type de tarification est obligatoire.</p>
-  }
-  @if (serviceOfferingForm.controls.pricingType.value === servicePricingType.HOURLY) {
-    <label for="hourlyRate">Tarif horaire</label>
-    <input id="hourlyRate" type="number" formControlName="hourlyRate" min="0.01" />
+<h2 class="page-title">
+  {{ isEditMode ? 'Modifier une offre de service' : 'Ajouter une offre de service' }}
+</h2>
+@if (isLoading()) {
+  <p role="status">Chargement de l’offre de service...</p>
+} @else if (loadError(); as message) {
+  <p class="error-message" role="alert">{{ message }}</p>
+} @else {
+  <form [formGroup]="serviceOfferingForm" (ngSubmit)="onSubmit()">
+    <label for="title">Titre</label>
+    <input id="title" formControlName="title" type="text" />
     @if (
-      serviceOfferingForm.controls.hourlyRate.touched &&
-      serviceOfferingForm.controls.hourlyRate.hasError('required')
+      serviceOfferingForm.controls.title.touched &&
+      serviceOfferingForm.controls.title.hasError('required')
     ) {
-      <p class="field-error">Le tarif horaire est obligatoire.</p>
+      <p class="field-error">Le titre est obligatoire.</p>
     }
     @if (
-      serviceOfferingForm.controls.hourlyRate.touched &&
-      serviceOfferingForm.controls.hourlyRate.hasError('min')
+      serviceOfferingForm.controls.title.touched &&
+      serviceOfferingForm.controls.title.hasError('minlength')
     ) {
-      <p class="field-error">Le tarif horaire doit être supérieur à 0.</p>
+      <p class="field-error">Le titre doit contenir au moins 2 caractères.</p>
     }
-  }
-  <button type="submit" [disabled]="isSubmitting()">
-    @if (isSubmitting()) {
-      Ajout en cours
-    } @else {
-      Ajouter l'offre de service
+    <label for="description">Description</label>
+    <textarea id="description" formControlName="description"></textarea>
+    @if (
+      serviceOfferingForm.controls.description.touched &&
+      serviceOfferingForm.controls.description.hasError('required')
+    ) {
+      <p class="field-error">La description est obligatoire.</p>
     }
-  </button>
-  @if (submitError(); as message) {
-    <p class="error-message" role="alert">{{ message }}</p>
-  }
-</form>
+    @if (
+      serviceOfferingForm.controls.description.touched &&
+      serviceOfferingForm.controls.description.hasError('minlength')
+    ) {
+      <p class="field-error">La description doit contenir au moins 2 caractères.</p>
+    }
+    <label for="pricingType">Type de tarification</label>
+    <select id="pricingType" formControlName="pricingType">
+      <option [value]="servicePricingType.HOURLY">À l'heure</option>
+      <option [value]="servicePricingType.FREE">Gratuit</option>
+    </select>
+    @if (
+      serviceOfferingForm.controls.pricingType.touched &&
+      serviceOfferingForm.controls.pricingType.hasError('required')
+    ) {
+      <p class="field-error">Le type de tarification est obligatoire.</p>
+    }
+    @if (serviceOfferingForm.controls.pricingType.value === servicePricingType.HOURLY) {
+      <label for="hourlyRate">Tarif horaire</label>
+      <input id="hourlyRate" type="number" formControlName="hourlyRate" min="0.01" />
+      @if (
+        serviceOfferingForm.controls.hourlyRate.touched &&
+        serviceOfferingForm.controls.hourlyRate.hasError('required')
+      ) {
+        <p class="field-error">Le tarif horaire est obligatoire.</p>
+      }
+      @if (
+        serviceOfferingForm.controls.hourlyRate.touched &&
+        serviceOfferingForm.controls.hourlyRate.hasError('min')
+      ) {
+        <p class="field-error">Le tarif horaire doit être supérieur à 0.</p>
+      }
+    }
+    <button type="submit" [disabled]="isSubmitting()">
+      @if (isSubmitting()) {
+        {{ isEditMode ? 'Enregistrement en cours...' : 'Ajout en cours...' }}
+      } @else {
+        {{ isEditMode ? 'Enregistrer les modifications' : "Ajouter l'offre de service" }}
+      }
+    </button>
+    @if (submitError(); as message) {
+      <p class="error-message" role="alert">{{ message }}</p>
+    }
+  </form>
+}
 <a [routerLink]="['/service-providers', serviceProviderId]">Retour à la fiche</a>

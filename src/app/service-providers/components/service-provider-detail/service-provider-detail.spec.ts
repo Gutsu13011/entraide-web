@@ -178,6 +178,65 @@ describe('ServiceProviderDetail', () => {
     ).toBeNull();
   });
 
+  it('should group profile editing and deletion for the provider owner', async () => {
+    authSessionStub.currentUser.set(currentUserMock);
+    await openDetail();
+
+    const actions = harness.routeNativeElement!.querySelector(
+      '.service-provider-card .provider-actions',
+    );
+    expect(actions).not.toBeNull();
+    const controls = actions!.querySelectorAll('a, button');
+
+    expect(controls).toHaveLength(2);
+    expect(controls[0].getAttribute('href')).toBe('/service-providers/7/edit');
+    expect(controls[0].textContent?.trim()).toBe('Modifier ma fiche');
+    expect(controls[1].textContent?.trim()).toBe('Supprimer ma fiche');
+    expect(controls[1].tagName).toBe('BUTTON');
+  });
+
+  it('should link each offering to its own edit page for the provider owner', async () => {
+    authSessionStub.currentUser.set(currentUserMock);
+    await openDetail();
+
+    const cards = harness.routeNativeElement!.querySelectorAll('.service-offering');
+    expect(cards).toHaveLength(mockServiceOfferings.length);
+
+    mockServiceOfferings.forEach((offering, index) => {
+      const link = cards[index].querySelector('a');
+      expect(link?.textContent?.trim()).toBe('Modifier cette offre');
+      expect(link?.getAttribute('href')).toBe(
+        `/service-providers/7/service-offerings/${offering.id}/edit`,
+      );
+    });
+  });
+
+  it.each([
+    { scenario: 'no user is authenticated', user: null, ownerUserId: 42 },
+    {
+      scenario: 'another user is authenticated',
+      user: { ...currentUserMock, id: 99 },
+      ownerUserId: 42,
+    },
+    { scenario: 'the provider has no owner', user: currentUserMock, ownerUserId: null },
+  ])(
+    'should hide profile actions and offering edit links when $scenario',
+    async ({ user, ownerUserId }) => {
+      authSessionStub.currentUser.set(user);
+      await openDetail();
+      component.serviceProvider.set({ ...mockServiceProvider, ownerUserId });
+      harness.detectChanges();
+
+      const element = harness.routeNativeElement!;
+      expect(element.querySelector('.provider-actions')).toBeNull();
+      expect(element.querySelector('a[href="/service-providers/7/edit"]')).toBeNull();
+      expect(element.querySelectorAll('.service-offering a')).toHaveLength(0);
+      expect(element.querySelectorAll('.service-offering')).toHaveLength(2);
+      expect(element.textContent).toContain('title1');
+      expect(element.textContent).toContain('title2');
+    },
+  );
+
   it('should load and display reviews with their summary', async () => {
     await openDetail();
     expect(reviewStoreStub.getAll).toHaveBeenCalledWith(7);

@@ -18,14 +18,14 @@ service.
 - Service provider detail pages
 - Review summaries and review lists on provider detail pages
 - Multiple service offerings per provider, with independent free or hourly pricing on detail pages
-- Service offering creation through a validated reactive form
+- Service offering creation and editing through a shared validated reactive form
 - Service provider creation and editing through a shared validated reactive form
 - Provider edit link and delete button displayed only to the profile owner
 - Provider deletion with confirmation, pending state and retry after failure
 - Existing profile data loaded before editing, with loading and error states
 - Failed updates preserve entered values and allow another attempt
 - Account first and last names prefilled and read-only in the provider creation form
-- Service offering creation link displayed only to the provider owner
+- Service offering creation and edit links displayed only to the provider owner
 - HTTP integration with the NestJS backend
 - Loading, empty and error states
 - Automated tests with Vitest
@@ -34,7 +34,7 @@ service.
 - Shared authentication state managed with NgRx SignalStore
 - Automatic navigation to the provider list after successful login
 - Automatic bearer token attachment to requests targeting the backend API
-- Authentication guards for provider creation, editing and service offering creation pages
+- Authentication guards for provider and service offering creation and editing pages
 
 ## Project status
 
@@ -85,6 +85,7 @@ Open Sophie Martin or Hugo Petit to see both pricing types on one profile.
 
 After logging in, you can create your own provider profile, edit it through
 "Modifier ma fiche", and add free or hourly offerings from its detail page.
+Use "Modifier cette offre" on an offering to edit its title, description or pricing.
 Saving an edit returns to the updated detail page. Cancelling an edit returns
 to the detail page without saving changes.
 
@@ -111,7 +112,7 @@ The header displays the user's name and a logout button.
 Failed login keeps the entered values and displays an error message.
 Reloading the application clears the session and requires another login.
 
-Creating or editing a service provider, or creating a service offering,
+Creating or editing a service provider or service offering
 requires login. Unauthenticated visitors opening these pages are redirected
 to login.
 
@@ -120,7 +121,7 @@ An HTTP interceptor attaches the session's access token to requests targeting
 Requests targeting other origins do not receive the session token.
 
 The backend independently enforces authentication on protected endpoints
-and ownership checks for provider updates, deletion and offering creation.
+and ownership checks for provider updates, deletion and offering creation and updates.
 
 Each account can create at most one provider profile. The creation form
 prefills the account's first and last names and displays them as read-only.
@@ -133,11 +134,24 @@ accounts, unauthenticated visitors and profiles without an owner.
 The edit form also checks ownership after loading the profile and redirects
 non-owners to its detail page.
 The API independently rejects unauthorized updates, deletion and offering
-creation, including direct requests.
+creation and updates, including direct requests.
 
 Editing uses `/service-providers/:id/edit` in the frontend and sends a PATCH
 request to `/service-providers/:id` in the API. The form does not send the
 profile ID or owner ID in the request body.
+
+Offering editing uses
+`/service-providers/:id/service-offerings/:offeringId/edit` in the frontend
+and sends a PATCH request to
+`/service-providers/:id/service-offerings/:offeringId` in the API.
+The form loads the provider and its offerings, checks ownership, and prefills
+the selected offering. Loading failures and missing offerings display an error
+and prevent submission. Saving waits for the API response before returning
+to the provider detail page; failed saves preserve the form and allow retry.
+
+Switching from hourly to free pricing clears the hourly rate. Switching from
+free to hourly pricing requires a new rate of at least 0.01. The API validates
+pricing independently and stores a null hourly rate for free offerings.
 
 Deletion sends a DELETE request to `/service-providers/:id`. The API returns
 204 No Content on success. The frontend prevents duplicate deletion requests
@@ -170,8 +184,9 @@ creates a production build.
 
 - Further visual and accessibility improvements
 - Session persistence
+- Handling expired access tokens in the interface
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
-- Managing existing service offerings from the frontend
+- Deleting individual service offerings from the frontend
 - Service requests and status tracking
 - Reviews linked to completed service requests

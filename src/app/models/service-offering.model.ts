@@ -19,3 +19,5 @@ export type CreateServiceOffering =
       hourlyRate: number;
       pricingType: ServicePricingType.HOURLY;
     };
+
+export type UpdateServiceOffering = Partial<Omit<ServiceOffering, 'id' | 'serviceProviderId'>>;

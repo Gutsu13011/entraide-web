@@ -41,6 +41,16 @@ describe('App routes', () => {
     expect(router.url).toBe('/login');
   });
 
+  it('should redirect unauthenticated users from provider editing to login', async () => {
+    await harness.navigateByUrl('/service-providers/7/edit', LoginForm);
+    expect(router.url).toBe('/login');
+  });
+
+  it('should redirect unauthenticated users from offering editing to login', async () => {
+    await harness.navigateByUrl('/service-providers/7/service-offerings/2/edit', LoginForm);
+    expect(router.url).toBe('/login');
+  });
+
   it('should redirect unauthenticated users from offering creation to login', async () => {
     await harness.navigateByUrl('/service-providers/7/service-offerings/new', LoginForm);
     expect(router.url).toBe('/login');
