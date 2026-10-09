@@ -26,7 +26,8 @@
   margin: 0;
 }
 
-.provider-actions .edit-button {
+.provider-actions .edit-button,
+.offering-actions .edit-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -42,7 +43,8 @@
   text-decoration: none;
 }
 
-.provider-actions .edit-button:hover {
+.provider-actions .edit-button:hover,
+.offering-actions .edit-button:hover {
   border-color: var(--color-primary-hover);
   background-color: var(--color-primary-hover);
 }
@@ -162,6 +164,24 @@ a {
   border-radius: 1rem;
   background-color: var(--color-surface);
   overflow-wrap: anywhere;
+}
+
+.offering-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.offering-actions .edit-button,
+.offering-actions .danger-button {
+  min-height: 2.25rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 0.4rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  text-align: center;
 }
 
 .service-offering strong {

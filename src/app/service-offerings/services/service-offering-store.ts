@@ -36,4 +36,8 @@ export class ServiceOfferingStore {
       changes,
     );
   }
+
+  delete(serviceProviderId: number, id: number): Observable<void> {
+    return this.http.delete<void>(`${this.url}/${serviceProviderId}/service-offerings/${id}`);
+  }
 }

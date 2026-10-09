@@ -84,6 +84,60 @@ describe('ServiceOfferingStore', () => {
     expect(expectedCreateServiceOffering).toEqual(createServiceOfferingResponse);
   });
 
+  describe('delete', () => {
+    it('should delete the selected offering and complete after a no-content response', () => {
+      const nextSpy = vi.fn();
+      const completeSpy = vi.fn();
+      const errorSpy = vi.fn();
+      service.delete(7, 12).subscribe({
+        next: nextSpy,
+        complete: completeSpy,
+        error: errorSpy,
+      });
+
+      const request = httpTesting.expectOne(
+        'http://localhost:3000/service-providers/7/service-offerings/12',
+      );
+      expect(request.request.method).toBe('DELETE');
+      expect(request.request.body).toBeNull();
+      expect(nextSpy).not.toHaveBeenCalled();
+      expect(completeSpy).not.toHaveBeenCalled();
+
+      request.flush(null, { status: 204, statusText: 'No Content' });
+
+      expect(nextSpy).toHaveBeenCalledTimes(1);
+      expect(completeSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { status: 401, statusText: 'Unauthorized' },
+      { status: 403, statusText: 'Forbidden' },
+      { status: 500, statusText: 'Internal Server Error' },
+    ])('should propagate a deletion failure with status $status', ({ status, statusText }) => {
+      const nextSpy = vi.fn();
+      const completeSpy = vi.fn();
+      const errorSpy = vi.fn();
+      service.delete(7, 12).subscribe({
+        next: nextSpy,
+        complete: completeSpy,
+        error: errorSpy,
+      });
+
+      const request = httpTesting.expectOne(
+        'http://localhost:3000/service-providers/7/service-offerings/12',
+      );
+      const errorBody = { message: 'Deletion failed' };
+      request.flush(errorBody, { status, statusText });
+
+      expect(nextSpy).not.toHaveBeenCalled();
+      expect(completeSpy).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ status, error: errorBody }),
+      );
+    });
+  });
+
   describe('update', () => {
     it('should patch a service offering and return the updated offering', () => {
       const changes: UpdateServiceOffering = { title: 'Nouveau titre' };

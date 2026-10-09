@@ -25,7 +25,8 @@ service.
 - Existing profile data loaded before editing, with loading and error states
 - Failed updates preserve entered values and allow another attempt
 - Account first and last names prefilled and read-only in the provider creation form
-- Service offering creation and edit links displayed only to the provider owner
+- Service offering creation and edit links and delete buttons displayed only to the provider owner
+- Individual offering deletion with confirmation, pending state and retry after failure
 - HTTP integration with the NestJS backend
 - Loading, empty and error states
 - Automated tests with Vitest
@@ -94,8 +95,13 @@ profile and its related offerings and reviews. Cancelling leaves the profile
 unchanged. Successful deletion opens the provider list; failed deletion keeps
 the detail page visible and allows another attempt.
 
-Demo profiles have no account owner, so their edit and add-offering links
-and delete button are hidden.
+"Supprimer cette offre" asks for confirmation, then removes the selected offering
+from the displayed list only after the API confirms success. The detail page,
+profile and other offerings are preserved. Failure displays an error and allows
+retry. Removing the last offering displays the empty state.
+
+Demo profiles have no account owner, so their management links and delete
+buttons are hidden.
 
 ## Authentication
 
@@ -121,7 +127,7 @@ An HTTP interceptor attaches the session's access token to requests targeting
 Requests targeting other origins do not receive the session token.
 
 The backend independently enforces authentication on protected endpoints
-and ownership checks for provider updates, deletion and offering creation and updates.
+and ownership checks for provider updates, deletion and offering creation, updates and deletion.
 
 Each account can create at most one provider profile. The creation form
 prefills the account's first and last names and displays them as read-only.
@@ -134,7 +140,7 @@ accounts, unauthenticated visitors and profiles without an owner.
 The edit form also checks ownership after loading the profile and redirects
 non-owners to its detail page.
 The API independently rejects unauthorized updates, deletion and offering
-creation and updates, including direct requests.
+creation, updates and deletion, including direct requests.
 
 Editing uses `/service-providers/:id/edit` in the frontend and sends a PATCH
 request to `/service-providers/:id` in the API. The form does not send the
@@ -157,6 +163,11 @@ Deletion sends a DELETE request to `/service-providers/:id`. The API returns
 204 No Content on success. The frontend prevents duplicate deletion requests
 while one is pending. Deleting a provider profile does not delete the user
 account.
+
+Individual offering deletion sends a DELETE request to
+`/service-providers/:id/service-offerings/:offeringId` and expects
+204 No Content. Profile and offering deletion cannot run simultaneously;
+all deletion buttons are disabled while either operation is pending.
 
 ## Quality checks
 
@@ -187,6 +198,5 @@ creates a production build.
 - Handling expired access tokens in the interface
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
-- Deleting individual service offerings from the frontend
 - Service requests and status tracking
 - Reviews linked to completed service requests

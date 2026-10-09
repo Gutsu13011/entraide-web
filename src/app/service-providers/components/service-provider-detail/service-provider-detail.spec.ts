@@ -75,6 +75,7 @@ describe('ServiceProviderDetail', () => {
   };
   const serviceOfferingsStoreStub = {
     getAll: vi.fn(),
+    delete: vi.fn(),
   };
   const authSessionStub = {
     currentUser: signal<CurrentUserResponse | null>(null),
@@ -85,6 +86,7 @@ describe('ServiceProviderDetail', () => {
 
   beforeEach(async () => {
     serviceProvidersStoreStub.remove.mockReset();
+    serviceOfferingsStoreStub.delete.mockReset();
     reviewStoreStub.getAll.mockReset().mockReturnValue(of(mockReviews));
     reviewStoreStub.getSummary.mockReset().mockReturnValue(of(mockReviewSummary));
     serviceOfferingsStoreStub.getAll.mockReset().mockReturnValue(of(mockServiceOfferings));
@@ -292,6 +294,200 @@ describe('ServiceProviderDetail', () => {
     expect(element?.textContent).toContain('Alice Martin');
     expect(element?.textContent).toContain('Excellent service.');
     expect(element?.textContent).toContain('19/09/2026');
+  });
+
+  describe('offering deletion', () => {
+    beforeEach(async () => {
+      authSessionStub.currentUser.set(currentUserMock);
+      await openDetail();
+    });
+
+    it('should preserve the offerings when confirmation is cancelled', () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      const button = harness.routeNativeElement!.querySelector<HTMLButtonElement>(
+        '.service-offering .danger-button',
+      )!;
+
+      button.click();
+
+      expect(confirmSpy).toHaveBeenCalledExactlyOnceWith(
+        `Supprimer définitivement l’offre « ${mockServiceOfferings[0].title} » ?`,
+      );
+      expect(serviceOfferingsStoreStub.delete).not.toHaveBeenCalled();
+      expect(component.serviceOfferings()).toEqual(mockServiceOfferings);
+      expect(component.deletingOfferingId()).toBeNull();
+    });
+
+    it.each([
+      { scenario: 'no user is authenticated', user: null, provider: mockServiceProvider },
+      {
+        scenario: 'another user is authenticated',
+        user: { ...currentUserMock, id: 99 },
+        provider: mockServiceProvider,
+      },
+      {
+        scenario: 'the provider has no owner',
+        user: currentUserMock,
+        provider: { ...mockServiceProvider, ownerUserId: null },
+      },
+      { scenario: 'the provider is not loaded', user: currentUserMock, provider: undefined },
+    ])(
+      'should hide offering deletion and ignore direct calls when $scenario',
+      ({ user, provider }) => {
+        authSessionStub.currentUser.set(user);
+        component.serviceProvider.set(provider);
+        harness.detectChanges();
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+        expect(
+          harness.routeNativeElement!.querySelector('.service-offering .danger-button'),
+        ).toBeNull();
+        component.onDeleteOffering(mockServiceOfferings[0]);
+
+        expect(confirmSpy).not.toHaveBeenCalled();
+        expect(serviceOfferingsStoreStub.delete).not.toHaveBeenCalled();
+        expect(component.serviceOfferings()).toEqual(mockServiceOfferings);
+        expect(component.deletingOfferingId()).toBeNull();
+      },
+    );
+
+    it('should wait for success, block overlapping deletions and remove only the selected offering', () => {
+      const response$ = new Subject<void>();
+      serviceOfferingsStoreStub.delete.mockReturnValue(response$.asObservable());
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const navigateSpy = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      const element = harness.routeNativeElement!;
+      const buttons = element.querySelectorAll<HTMLButtonElement>(
+        '.service-offering .danger-button',
+      );
+      const providerButton = element.querySelector<HTMLButtonElement>(
+        '.provider-actions .danger-button',
+      )!;
+
+      buttons[0].click();
+      harness.detectChanges();
+
+      expect(serviceOfferingsStoreStub.delete).toHaveBeenCalledExactlyOnceWith(7, 1);
+      expect(component.deletingOfferingId()).toBe(1);
+      expect(component.serviceOfferings()).toEqual(mockServiceOfferings);
+      expect(buttons[0].disabled).toBe(true);
+      expect(buttons[0].textContent?.trim()).toBe('Suppression en cours...');
+      expect(buttons[1].disabled).toBe(true);
+      expect(buttons[1].textContent?.trim()).toBe('Supprimer cette offre');
+      expect(providerButton.disabled).toBe(true);
+
+      component.onDeleteOffering(mockServiceOfferings[0]);
+      component.onDeleteOffering(mockServiceOfferings[1]);
+      component.onDelete();
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(serviceOfferingsStoreStub.delete).toHaveBeenCalledTimes(1);
+      expect(serviceProvidersStoreStub.remove).not.toHaveBeenCalled();
+
+      response$.next(undefined);
+      response$.complete();
+      harness.detectChanges();
+
+      expect(component.deletingOfferingId()).toBeNull();
+      expect(component.serviceOfferings()).toEqual([mockServiceOfferings[1]]);
+      const remaining = element.querySelectorAll('.service-offering');
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].textContent).toContain('title2');
+      expect(remaining[0].querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
+      expect(providerButton.disabled).toBe(false);
+      expect(component.serviceProvider()).toEqual(mockServiceProvider);
+      expect(component.reviews()).toEqual(mockReviews);
+      expect(component.reviewSummary()).toEqual(mockReviewSummary);
+      expect(component.deleteOfferingError()).toBeNull();
+      expect(serviceOfferingsStoreStub.getAll).toHaveBeenCalledTimes(1);
+      expect(navigateSpy).not.toHaveBeenCalled();
+    });
+
+    it('should preserve the offering after failure and clear the error when retrying', () => {
+      const retryResponse$ = new Subject<void>();
+      serviceOfferingsStoreStub.delete
+        .mockReturnValueOnce(throwError(() => new Error('Deletion failed')))
+        .mockReturnValueOnce(retryResponse$.asObservable());
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const navigateSpy = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      const element = harness.routeNativeElement!;
+      const button = element.querySelector<HTMLButtonElement>('.service-offering .danger-button')!;
+
+      button.click();
+      harness.detectChanges();
+
+      expect(component.serviceOfferings()).toEqual(mockServiceOfferings);
+      expect(component.deletingOfferingId()).toBeNull();
+      expect(button.disabled).toBe(false);
+      const alerts = element.querySelectorAll('.service-offerings [role="alert"]');
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].textContent?.trim()).toBe(
+        'Impossible de supprimer cette offre. Veuillez réessayer.',
+      );
+      expect(alerts[0].classList.contains('error-message')).toBe(true);
+      expect(navigateSpy).not.toHaveBeenCalled();
+
+      button.click();
+      harness.detectChanges();
+
+      expect(component.deleteOfferingError()).toBeNull();
+      expect(element.querySelector('.service-offerings [role="alert"]')).toBeNull();
+      expect(component.deletingOfferingId()).toBe(1);
+      expect(component.serviceOfferings()).toEqual(mockServiceOfferings);
+      expect(serviceOfferingsStoreStub.delete).toHaveBeenCalledTimes(2);
+      expect(serviceOfferingsStoreStub.delete).toHaveBeenNthCalledWith(2, 7, 1);
+
+      retryResponse$.next(undefined);
+      retryResponse$.complete();
+      harness.detectChanges();
+
+      expect(component.deletingOfferingId()).toBeNull();
+      expect(component.serviceOfferings()).toEqual([mockServiceOfferings[1]]);
+      expect(element.querySelectorAll('.service-offering')).toHaveLength(1);
+      expect(navigateSpy).not.toHaveBeenCalled();
+    });
+
+    it('should display the empty state after deleting the last offering', () => {
+      component.serviceOfferings.set([mockServiceOfferings[0]]);
+      harness.detectChanges();
+      serviceOfferingsStoreStub.delete.mockReturnValue(of(undefined));
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+      harness
+        .routeNativeElement!.querySelector<HTMLButtonElement>('.service-offering .danger-button')!
+        .click();
+      harness.detectChanges();
+
+      expect(serviceOfferingsStoreStub.delete).toHaveBeenCalledExactlyOnceWith(7, 1);
+      expect(component.serviceOfferings()).toEqual([]);
+      expect(harness.routeNativeElement!.querySelectorAll('.service-offering')).toHaveLength(0);
+      expect(harness.routeNativeElement!.textContent).toContain(
+        'Aucune offre de service pour le moment.',
+      );
+      expect(harness.routeNativeElement!.querySelector('.service-provider-card')).not.toBeNull();
+    });
+
+    it('should block offering deletion while the provider is being deleted', () => {
+      const providerResponse$ = new Subject<void>();
+      serviceProvidersStoreStub.remove.mockReturnValue(providerResponse$.asObservable());
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+      component.onDelete();
+      harness.detectChanges();
+      const buttons = harness.routeNativeElement!.querySelectorAll<HTMLButtonElement>(
+        '.service-offering .danger-button',
+      );
+      expect(buttons).toHaveLength(2);
+      buttons.forEach((button) => expect(button.disabled).toBe(true));
+
+      component.onDeleteOffering(mockServiceOfferings[0]);
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(serviceOfferingsStoreStub.delete).not.toHaveBeenCalled();
+      expect(component.serviceOfferings()).toEqual(mockServiceOfferings);
+
+      providerResponse$.error(new Error('Deletion failed'));
+      harness.detectChanges();
+      buttons.forEach((button) => expect(button.disabled).toBe(false));
+    });
   });
 
   it('should not delete the provider when the owner cancels confirmation', async () => {

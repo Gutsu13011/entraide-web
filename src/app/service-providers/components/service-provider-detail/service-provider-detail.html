@@ -20,7 +20,12 @@
         <a class="edit-button" [routerLink]="['/service-providers', provider.id, 'edit']">
           Modifier ma fiche
         </a>
-        <button type="button" class="danger-button" (click)="onDelete()" [disabled]="isDeleting()">
+        <button
+          type="button"
+          class="danger-button"
+          (click)="onDelete()"
+          [disabled]="deletingOfferingId() !== null || isDeleting()"
+        >
           @if (isDeleting()) {
             Suppression en cours...
           } @else {
@@ -58,21 +63,39 @@
             }
           </header>
           @if (isOwner()) {
-            <a
-              [routerLink]="[
-                '/service-providers',
-                provider.id,
-                'service-offerings',
-                serviceOffering.id,
-                'edit',
-              ]"
-              >Modifier cette offre</a
-            >
+            <div class="offering-actions">
+              <a
+                class="edit-button"
+                [routerLink]="[
+                  '/service-providers',
+                  provider.id,
+                  'service-offerings',
+                  serviceOffering.id,
+                  'edit',
+                ]"
+                >Modifier cette offre</a
+              >
+              <button
+                type="button"
+                class="danger-button"
+                (click)="onDeleteOffering(serviceOffering)"
+                [disabled]="deletingOfferingId() !== null || isDeleting()"
+              >
+                @if (deletingOfferingId() === serviceOffering.id) {
+                  Suppression en cours...
+                } @else {
+                  Supprimer cette offre
+                }
+              </button>
+            </div>
           }
         </article>
       } @empty {
         <p>Aucune offre de service pour le moment.</p>
       }
+    }
+    @if (deleteOfferingError(); as message) {
+      <p class="error-message" role="alert">{{ message }}</p>
     }
   </section>
   <section class="reviews" aria-labelledby="reviews-title">

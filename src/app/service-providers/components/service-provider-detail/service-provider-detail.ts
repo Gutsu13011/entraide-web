@@ -70,7 +70,7 @@ export class ServiceProviderDetail {
   private readonly router = inject(Router);
 
   readonly isLoading = signal<boolean>(true);
-  readonly errorMessage = signal<null | string>(null);
+  readonly errorMessage = signal<string | null>(null);
   readonly serviceProviderId: number = Number(this.route.snapshot.paramMap.get('id'));
   readonly serviceProvider = signal<ServiceProvider | undefined>(undefined);
   readonly isReviewLoading = signal<boolean>(true);
@@ -92,9 +92,11 @@ export class ServiceProviderDetail {
   });
   readonly isDeleting = signal<boolean>(false);
   readonly deleteError = signal<string | null>(null);
+  readonly deletingOfferingId = signal<number | null>(null);
+  readonly deleteOfferingError = signal<string | null>(null);
 
   onDelete(): void {
-    if (this.isDeleting() || !this.isOwner()) {
+    if (this.isDeleting() || !this.isOwner() || this.deletingOfferingId() !== null) {
       return;
     }
 
@@ -117,6 +119,34 @@ export class ServiceProviderDetail {
         },
         error: () => {
           this.deleteError.set('Impossible de supprimer cette fiche. Veuillez réessayer.');
+        },
+      });
+  }
+
+  onDeleteOffering(offering: ServiceOffering): void {
+    if (this.deletingOfferingId() !== null || !this.isOwner() || this.isDeleting()) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Supprimer définitivement l’offre « ${offering.title} » ?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    this.deletingOfferingId.set(offering.id);
+    this.deleteOfferingError.set(null);
+    this.serviceOfferingsStore
+      .delete(this.serviceProviderId, offering.id)
+      .pipe(finalize(() => this.deletingOfferingId.set(null)))
+      .subscribe({
+        next: () => {
+          this.serviceOfferings.update((serviceOfferings) =>
+            serviceOfferings.filter((serviceOffering) => serviceOffering.id !== offering.id),
+          );
+        },
+        error: () => {
+          this.deleteOfferingError.set('Impossible de supprimer cette offre. Veuillez réessayer.');
         },
       });
   }
