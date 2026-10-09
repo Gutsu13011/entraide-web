@@ -35,6 +35,7 @@ service.
 - Shared authentication state managed with NgRx SignalStore
 - Automatic navigation to the provider list after successful login
 - Automatic bearer token attachment to requests targeting the backend API
+- Session cleared when the API rejects its automatically attached token with a 401 response
 - Authentication guards for provider and service offering creation and editing pages
 
 ## Project status
@@ -126,6 +127,15 @@ An HTTP interceptor attaches the session's access token to requests targeting
 `http://localhost:3000`, while preserving any existing Authorization header.
 Requests targeting other origins do not receive the session token.
 
+If a request using the automatically attached session token receives
+`401 Unauthorized`, the interceptor clears the session if that token is still
+the current one. The header returns to its logged-out state; the user can log
+in again. The error is forwarded to the component, and no automatic retry or
+navigation occurs. A delayed 401 from an older token does not clear a newer
+session. Other HTTP errors and requests forwarded without token attachment do
+not trigger logout. Expiration is detected when the API rejects a request,
+not by a timer in the interface.
+
 The backend independently enforces authentication on protected endpoints
 and ownership checks for provider updates, deletion and offering creation, updates and deletion.
 
@@ -195,7 +205,7 @@ creates a production build.
 
 - Further visual and accessibility improvements
 - Session persistence
-- Handling expired access tokens in the interface
+- A session expiry notification and return to login
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
 - Service requests and status tracking

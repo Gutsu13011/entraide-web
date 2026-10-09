@@ -1,6 +1,7 @@
-import { HttpInterceptorFn } from '@angular/common/http';
+import { HttpInterceptorFn, HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { AuthSession } from '../services/auth-session';
+import { catchError, throwError } from 'rxjs';
 
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const authSession = inject(AuthSession);
@@ -20,5 +21,17 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
     return next(req);
   }
 
-  return next(req.clone({ setHeaders: { Authorization: `Bearer ${accessToken}` } }));
+  return next(req.clone({ setHeaders: { Authorization: `Bearer ${accessToken}` } })).pipe(
+    catchError((error) => {
+      if (
+        error instanceof HttpErrorResponse &&
+        error.status === 401 &&
+        authSession.accessToken() === accessToken
+      ) {
+        authSession.logout();
+      }
+
+      return throwError(() => error);
+    }),
+  );
 };
