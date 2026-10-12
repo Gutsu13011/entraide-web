@@ -88,6 +88,20 @@
                 }
               </button>
             </div>
+          } @else if (provider.ownerUserId !== null) {
+            <div class="offering-actions">
+              <a
+                [routerLink]="[
+                  '/service-providers',
+                  provider.id,
+                  'service-offerings',
+                  serviceOffering.id,
+                  'service-requests',
+                  'new',
+                ]"
+                >Demander cette prestation</a
+              >
+            </div>
           }
         </article>
       } @empty {

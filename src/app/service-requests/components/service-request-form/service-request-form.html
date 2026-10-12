@@ -1,0 +1,35 @@
+<h2 class="page-title">Envoyer une demande</h2>
+
+@if (isLoading()) {
+  <p role="status">Chargement de l’offre de service...</p>
+} @else if (loadError(); as message) {
+  <p class="error-message" role="alert">{{ message }}</p>
+} @else if (serviceOffering(); as offering) {
+  <h3>{{ offering.title }}</h3>
+  <p>{{ offering.description }}</p>
+  @if (offering.pricingType === servicePricingType.FREE) {
+    <p>Prestation gratuite</p>
+  } @else {
+    <p>{{ offering.hourlyRate }} € / heure</p>
+  }
+  <form [formGroup]="serviceRequestForm" (ngSubmit)="onSubmit()" novalidate>
+    <label for="message">Votre message</label>
+    <textarea id="message" formControlName="message" rows="6"></textarea>
+    @if (
+      serviceRequestForm.controls.message.touched && serviceRequestForm.controls.message.invalid
+    ) {
+      <p class="field-error">Le message doit contenir du texte.</p>
+    }
+    <button type="submit" [disabled]="isSubmitting()">
+      @if (isSubmitting()) {
+        Envoi en cours...
+      } @else {
+        Envoyer ma demande
+      }
+    </button>
+    @if (submitError(); as message) {
+      <p class="error-message" role="alert">{{ message }}</p>
+    }
+  </form>
+}
+<a [routerLink]="['/service-providers', `${serviceProviderId}`]">Retour à la fiche</a>

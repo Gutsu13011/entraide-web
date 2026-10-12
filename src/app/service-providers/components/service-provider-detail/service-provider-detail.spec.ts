@@ -232,12 +232,63 @@ describe('ServiceProviderDetail', () => {
       const element = harness.routeNativeElement!;
       expect(element.querySelector('.provider-actions')).toBeNull();
       expect(element.querySelector('a[href="/service-providers/7/edit"]')).toBeNull();
-      expect(element.querySelectorAll('.service-offering a')).toHaveLength(0);
+      expect(element.querySelectorAll('.service-offering a[href$="/edit"]')).toHaveLength(0);
+      expect(element.querySelectorAll('.service-offering .danger-button')).toHaveLength(0);
       expect(element.querySelectorAll('.service-offering')).toHaveLength(2);
       expect(element.textContent).toContain('title1');
       expect(element.textContent).toContain('title2');
     },
   );
+
+  describe('service request links', () => {
+    it.each([
+      { scenario: 'an anonymous visitor', user: null },
+      { scenario: 'another authenticated account', user: { ...currentUserMock, id: 99 } },
+    ])('should link each offering to its request form for $scenario', async ({ user }) => {
+      authSessionStub.currentUser.set(user);
+      await openDetail();
+      harness.detectChanges();
+
+      const cards = harness.routeNativeElement!.querySelectorAll('.service-offering');
+      expect(cards).toHaveLength(mockServiceOfferings.length);
+      mockServiceOfferings.forEach((offering, index) => {
+        const link = cards[index].querySelector('.offering-actions a');
+        expect(link?.textContent?.trim()).toBe('Demander cette prestation');
+        expect(link?.getAttribute('href')).toBe(
+          `/service-providers/7/service-offerings/${offering.id}/service-requests/new`,
+        );
+        expect(cards[index].querySelector('a[href$="/edit"]')).toBeNull();
+        expect(cards[index].querySelector('.danger-button')).toBeNull();
+      });
+    });
+
+    it('should keep management actions and hide request links for the provider owner', async () => {
+      authSessionStub.currentUser.set(currentUserMock);
+      await openDetail();
+      harness.detectChanges();
+
+      const element = harness.routeNativeElement!;
+      expect(
+        element.querySelectorAll('.service-offering a[href$="/service-requests/new"]'),
+      ).toHaveLength(0);
+      expect(element.querySelectorAll('.service-offering a[href$="/edit"]')).toHaveLength(2);
+      expect(element.querySelectorAll('.service-offering .danger-button')).toHaveLength(2);
+    });
+
+    it('should hide request links for a provider profile without an owner', async () => {
+      await openDetail();
+      component.serviceProvider.set({ ...mockServiceProvider, ownerUserId: null });
+      harness.detectChanges();
+
+      const element = harness.routeNativeElement!;
+      expect(
+        element.querySelectorAll('.service-offering a[href$="/service-requests/new"]'),
+      ).toHaveLength(0);
+      expect(element.querySelectorAll('.service-offering')).toHaveLength(2);
+      expect(element.textContent).toContain('title1');
+      expect(element.textContent).toContain('title2');
+    });
+  });
 
   it('should load and display reviews with their summary', async () => {
     await openDetail();

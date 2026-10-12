@@ -27,6 +27,9 @@ service.
 - Account first and last names prefilled and read-only in the provider creation form
 - Service offering creation and edit links and delete buttons displayed only to the provider owner
 - Individual offering deletion with confirmation, pending state and retry after failure
+- Service request creation from an offering through a protected reactive form
+- Offering title, description and free or hourly pricing displayed before sending a request
+- Request submission with validation, pending state, duplicate prevention and retry after failure
 - HTTP integration with the NestJS backend
 - Loading, empty and error states
 - Automated tests with Vitest
@@ -36,7 +39,7 @@ service.
 - Automatic navigation to the provider list after successful login
 - Automatic bearer token attachment to requests targeting the backend API
 - Session cleared when the API rejects its automatically attached token with a 401 response
-- Authentication guards for provider and service offering creation and editing pages
+- Authentication guards for provider and service offering creation and editing pages, and request creation
 
 ## Project status
 
@@ -48,7 +51,8 @@ Account registration, login and logout are implemented.
 Authentication state is currently stored in memory and is cleared when
 the page is reloaded.
 
-Service request workflows are planned.
+Service request creation is implemented. Sent and received request pages,
+provider replies and status tracking are planned.
 The current version is intended for local development and demonstration.
 
 ## Requirements
@@ -101,8 +105,8 @@ from the displayed list only after the API confirms success. The detail page,
 profile and other offerings are preserved. Failure displays an error and allows
 retry. Removing the last offering displays the empty state.
 
-Demo profiles have no account owner, so their management links and delete
-buttons are hidden.
+Demo profiles have no account owner, so their management links, delete
+buttons and service request links are hidden.
 
 ## Authentication
 
@@ -179,6 +183,37 @@ Individual offering deletion sends a DELETE request to
 204 No Content. Profile and offering deletion cannot run simultaneously;
 all deletion buttons are disabled while either operation is pending.
 
+## Service requests
+
+On a profile owned by another account, choose "Demander cette prestation"
+on an offering. The link is also visible to anonymous visitors, who are
+redirected to login. The profile owner sees offering management actions instead.
+Profiles without an account owner cannot receive requests and have no request link.
+
+The protected frontend route is
+`/service-providers/:id/service-offerings/:offeringId/service-requests/new`.
+It loads the provider's offerings and displays the selected offering's title,
+description and pricing. Missing offerings and loading errors hide the form.
+The return link navigates to the provider detail page without reloading the app.
+
+The message must contain at least one non-whitespace character. Validation
+feedback appears after interaction or an invalid submission. Sending posts only
+`message` to
+`/service-providers/:serviceProviderId/service-offerings/:serviceOfferingId/service-requests`.
+The backend derives the requester from the verified token and the recipient
+from the provider's owner, records the offering title and pricing snapshots,
+and sets the initial status to `SENT`. Sending a request does not mean it has
+been accepted by the provider.
+
+The submit button shows progress and prevents duplicate requests while an
+operation is pending. Success returns to the provider detail page; failure
+keeps the message and allows retry. The return link remains available during
+loading and after errors.
+
+The HTTP service also supports the private `GET /service-requests/sent` and
+`GET /service-requests/received` endpoints. Their user-facing pages are not
+implemented yet.
+
 ## Quality checks
 
 Run the tests once:
@@ -208,5 +243,5 @@ creates a production build.
 - A session expiry notification and return to login
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
-- Service requests and status tracking
+- Sent and received request pages, provider replies and status tracking
 - Reviews linked to completed service requests

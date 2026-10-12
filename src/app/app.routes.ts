@@ -6,6 +6,7 @@ import { ServiceOfferingForm } from './service-offerings/components/service-offe
 import { LoginForm } from './auth/components/login-form/login-form';
 import { RegisterForm } from './auth/components/register-form/register-form';
 import { authGuard } from './auth/guards/auth-guard';
+import { ServiceRequestForm } from './service-requests/components/service-request-form/service-request-form';
 
 export const routes: Routes = [
   { path: '', component: ServiceProviderList },
@@ -18,6 +19,11 @@ export const routes: Routes = [
   {
     path: 'service-providers/:id/service-offerings/:offeringId/edit',
     component: ServiceOfferingForm,
+    canActivate: [authGuard],
+  },
+  {
+    path: 'service-providers/:id/service-offerings/:offeringId/service-requests/new',
+    component: ServiceRequestForm,
     canActivate: [authGuard],
   },
   {

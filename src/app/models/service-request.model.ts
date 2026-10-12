@@ -1,0 +1,30 @@
+import { ServicePricingType } from './service-offering.model';
+
+export interface ServiceRequest {
+  id: number;
+  message: string;
+  status: ServiceRequestStatus;
+  createdAt: string;
+  requesterUserId: number;
+  recipientUserId: number;
+  serviceOfferingId: number | null;
+  offeringTitleSnapshot: string;
+  offeringPricingTypeSnapshot: ServicePricingType;
+  offeringHourlyRateSnapshot: number | null;
+  requester: ServiceRequestParticipant;
+  recipient: ServiceRequestParticipant;
+}
+
+export interface CreateServiceRequest {
+  message: string;
+}
+
+export interface ServiceRequestParticipant {
+  id: number;
+  firstName: string;
+  lastName: string;
+}
+
+export enum ServiceRequestStatus {
+  SENT = 'SENT',
+}
