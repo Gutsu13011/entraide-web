@@ -11,6 +11,8 @@ import { ServiceOffering, ServicePricingType } from './models/service-offering.m
 import { ServiceProviderDetail } from './service-providers/components/service-provider-detail/service-provider-detail';
 import { ServiceProvider } from './models/service-provider.model';
 import { CurrentUserResponse } from './models/auth.model';
+import { ServiceRequestList } from './service-requests/components/service-request-list/service-request-list';
+import { ServiceRequest, ServiceRequestStatus } from './models/service-request.model';
 
 describe('App routes', () => {
   const authSessionStub = {
@@ -185,6 +187,94 @@ describe('App routes', () => {
       expect(harness.routeNativeElement?.querySelector('h3')?.textContent?.trim()).toBe('Peinture');
       expect(harness.routeNativeElement?.querySelector('form')).not.toBeNull();
       expect(authSessionStub.isAuthenticated()).toBe(true);
+    });
+  });
+
+  describe('private request list routes', () => {
+    const sentRequest: ServiceRequest = {
+      id: 42,
+      message: 'Bonjour, je souhaite un conseil.',
+      status: ServiceRequestStatus.SENT,
+      createdAt: '2026-10-12T10:30:00.000Z',
+      requesterUserId: 8,
+      recipientUserId: 9,
+      serviceOfferingId: null,
+      offeringTitleSnapshot: 'Conseil gratuit',
+      offeringPricingTypeSnapshot: ServicePricingType.FREE,
+      offeringHourlyRateSnapshot: null,
+      requester: { id: 8, firstName: 'Alice', lastName: 'Martin' },
+      recipient: { id: 9, firstName: 'Bruno', lastName: 'Leroy' },
+    };
+    const receivedRequest: ServiceRequest = {
+      ...sentRequest,
+      id: 43,
+      requesterUserId: 9,
+      recipientUserId: 8,
+      requester: sentRequest.recipient,
+      recipient: sentRequest.requester,
+    };
+
+    it.each(['sent', 'received'])(
+      'should redirect unauthenticated users from the %s request list to login without fetching requests',
+      async (direction) => {
+        await harness.navigateByUrl(`/service-requests/${direction}`, LoginForm);
+
+        expect(router.url).toBe('/login');
+        httpTesting.expectNone('http://localhost:3000/service-requests/sent');
+        httpTesting.expectNone('http://localhost:3000/service-requests/received');
+      },
+    );
+
+    it.each([
+      { direction: 'sent', response: sentRequest, unused: 'received' },
+      { direction: 'received', response: receivedRequest, unused: 'sent' },
+    ])(
+      'should open the authenticated $direction list and fetch only its endpoint',
+      async ({ direction, response, unused }) => {
+        authSessionStub.isAuthenticated.set(true);
+        const component = await harness.navigateByUrl(
+          `/service-requests/${direction}`,
+          ServiceRequestList,
+        );
+
+        expect(router.url).toBe(`/service-requests/${direction}`);
+        expect(component.isSentMode).toBe(direction === 'sent');
+        expect(component.isLoading()).toBe(true);
+        const pending = httpTesting.expectOne(
+          `http://localhost:3000/service-requests/${direction}`,
+        );
+        expect(pending.request.method).toBe('GET');
+        httpTesting.expectNone(`http://localhost:3000/service-requests/${unused}`);
+        pending.flush([response]);
+        expect(component.serviceRequests()).toEqual([response]);
+        expect(component.isLoading()).toBe(false);
+        expect(component.loadError()).toBeNull();
+      },
+    );
+
+    it('should switch from sent to received requests using the new route data', async () => {
+      authSessionStub.isAuthenticated.set(true);
+      const sentComponent = await harness.navigateByUrl(
+        '/service-requests/sent',
+        ServiceRequestList,
+      );
+      httpTesting.expectOne('http://localhost:3000/service-requests/sent').flush([sentRequest]);
+      expect(sentComponent.serviceRequests()).toEqual([sentRequest]);
+
+      const receivedComponent = await harness.navigateByUrl(
+        '/service-requests/received',
+        ServiceRequestList,
+      );
+
+      expect(receivedComponent.isSentMode).toBe(false);
+      expect(receivedComponent.isLoading()).toBe(true);
+      expect(receivedComponent.serviceRequests()).toEqual([]);
+      httpTesting
+        .expectOne('http://localhost:3000/service-requests/received')
+        .flush([receivedRequest]);
+      expect(receivedComponent.serviceRequests()).toEqual([receivedRequest]);
+      expect(receivedComponent.isLoading()).toBe(false);
+      expect(router.url).toBe('/service-requests/received');
     });
   });
 });

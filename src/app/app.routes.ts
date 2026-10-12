@@ -7,6 +7,7 @@ import { LoginForm } from './auth/components/login-form/login-form';
 import { RegisterForm } from './auth/components/register-form/register-form';
 import { authGuard } from './auth/guards/auth-guard';
 import { ServiceRequestForm } from './service-requests/components/service-request-form/service-request-form';
+import { ServiceRequestList } from './service-requests/components/service-request-list/service-request-list';
 
 export const routes: Routes = [
   { path: '', component: ServiceProviderList },
@@ -32,6 +33,18 @@ export const routes: Routes = [
     canActivate: [authGuard],
   },
   { path: 'service-providers/:id', component: ServiceProviderDetail },
+  {
+    path: 'service-requests/sent',
+    component: ServiceRequestList,
+    canActivate: [authGuard],
+    data: { direction: 'sent' },
+  },
+  {
+    path: 'service-requests/received',
+    component: ServiceRequestList,
+    canActivate: [authGuard],
+    data: { direction: 'received' },
+  },
   { path: 'login', component: LoginForm },
   { path: 'register', component: RegisterForm },
 ];

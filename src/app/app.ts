@@ -1,5 +1,5 @@
 import { Component, inject } from '@angular/core';
-import { RouterLink, RouterOutlet } from '@angular/router';
+import { RouterLink, RouterOutlet, Router } from '@angular/router';
 import { AuthSession } from './auth/services/auth-session';
 
 @Component({
@@ -9,5 +9,12 @@ import { AuthSession } from './auth/services/auth-session';
   styleUrl: './app.scss',
 })
 export class App {
+  private readonly router = inject(Router);
+
   readonly authSession = inject(AuthSession);
+
+  onLogout(): void {
+    this.authSession.logout();
+    this.router.navigate(['/login']);
+  }
 }

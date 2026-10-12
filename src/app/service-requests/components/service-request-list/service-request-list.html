@@ -1,0 +1,37 @@
+<h2 class="page-title">{{ isSentMode ? 'Mes demandes envoyées' : 'Mes demandes reçues' }}</h2>
+@if (isLoading()) {
+  <p role="status">Chargement de vos demandes...</p>
+} @else if (loadError(); as message) {
+  <p class="error-message" role="alert">{{ message }}</p>
+} @else {
+  @for (serviceRequest of serviceRequests(); track serviceRequest.id) {
+    <article class="service-request">
+      <h3>{{ serviceRequest.offeringTitleSnapshot }}</h3>
+      @if (isSentMode) {
+        <p>À: {{ serviceRequest.recipient.firstName }} {{ serviceRequest.recipient.lastName }}</p>
+      } @else {
+        <p>De: {{ serviceRequest.requester.firstName }} {{ serviceRequest.requester.lastName }}</p>
+      }
+      <p class="request-message">{{ serviceRequest.message }}</p>
+      @if (serviceRequest.offeringPricingTypeSnapshot === servicePricingType.FREE) {
+        <p>Prestation gratuite</p>
+      } @else {
+        <p>{{ serviceRequest.offeringHourlyRateSnapshot }} € / heure</p>
+      }
+      @if (serviceRequest.status === serviceRequestStatus.SENT) {
+        <p>Demande envoyée</p>
+      }
+      <time [attr.datetime]="serviceRequest.createdAt">{{
+        serviceRequest.createdAt | date: 'dd/MM/yyyy'
+      }}</time>
+    </article>
+  } @empty {
+    <p>
+      {{
+        isSentMode
+          ? 'Vous n’avez encore envoyé aucune demande.'
+          : 'Vous n’avez encore reçu aucune demande.'
+      }}
+    </p>
+  }
+}

@@ -30,6 +30,10 @@ service.
 - Service request creation from an offering through a protected reactive form
 - Offering title, description and free or hourly pricing displayed before sending a request
 - Request submission with validation, pending state, duplicate prevention and retry after failure
+- Private sent and received request pages through a shared list component
+- Request participants, messages, historical offering titles and pricing, status and dates displayed in cards
+- Signed-in account links to request lists in the header
+- Manual logout opens login and closes the current page, including private request lists
 - HTTP integration with the NestJS backend
 - Loading, empty and error states
 - Automated tests with Vitest
@@ -39,7 +43,7 @@ service.
 - Automatic navigation to the provider list after successful login
 - Automatic bearer token attachment to requests targeting the backend API
 - Session cleared when the API rejects its automatically attached token with a 401 response
-- Authentication guards for provider and service offering creation and editing pages, and request creation
+- Authentication guards for provider and service offering creation and editing pages, request creation and request lists
 
 ## Project status
 
@@ -51,8 +55,9 @@ Account registration, login and logout are implemented.
 Authentication state is currently stored in memory and is cleared when
 the page is reloaded.
 
-Service request creation is implemented. Sent and received request pages,
-provider replies and status tracking are planned.
+Service request creation and private sent and received request pages are
+implemented. Requests currently have the initial `SENT` status; provider replies
+and further status transitions are planned.
 The current version is intended for local development and demonstration.
 
 ## Requirements
@@ -118,14 +123,18 @@ email and a password of at least 15 characters.
 
 After registration, the application opens the login page.
 Successful login retrieves the user profile and opens the provider list.
-The header displays the user's name and a logout button.
+The header displays the user's name, links to sent and received requests,
+and a logout button. Clicking "Se déconnecter" clears the frontend session
+and opens the login page, closing the current page. Private request lists no
+longer remain visible after manual logout, including when a response arrives
+from an operation that was already pending.
 
 Failed login keeps the entered values and displays an error message.
 Reloading the application clears the session and requires another login.
 
-Creating or editing a service provider or service offering
-requires login. Unauthenticated visitors opening these pages are redirected
-to login.
+Creating or editing a service provider or service offering, sending a service
+request, and viewing sent or received request lists require login.
+Unauthenticated visitors opening these pages are redirected to login.
 
 An HTTP interceptor attaches the session's access token to requests targeting
 `http://localhost:3000`, while preserving any existing Authorization header.
@@ -210,9 +219,25 @@ operation is pending. Success returns to the provider detail page; failure
 keeps the message and allows retry. The return link remains available during
 loading and after errors.
 
-The HTTP service also supports the private `GET /service-requests/sent` and
-`GET /service-requests/received` endpoints. Their user-facing pages are not
-implemented yet.
+The "Demandes envoyées" and "Demandes reçues" links appear in the header
+while signed in. They open the protected `/service-requests/sent` and
+`/service-requests/received` pages, which call the matching private GET endpoints.
+The API filters requests using the authenticated account; the frontend does not
+send an account identifier. Both pages share a list component, with static route
+data selecting the endpoint and page title.
+
+Sent requests display the recipient's first and last names; received requests
+display the requester's names. Each card includes the message, creation date,
+initial status displayed as "Demande envoyée", and the offering title and pricing
+snapshots. Changing or deleting an offering does not remove these historical
+values from the request list. The cards preserve message line breaks and the
+order returned by the API.
+
+Loading, successful empty responses and loading failures have separate views.
+Switching between the two pages loads the selected list. Manual logout removes
+the account links and opens login, leaving the private list page.
+
+There are no provider reply or status-update actions yet.
 
 ## Quality checks
 
@@ -243,5 +268,5 @@ creates a production build.
 - A session expiry notification and return to login
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
-- Sent and received request pages, provider replies and status tracking
+- Provider replies and further service request status transitions
 - Reviews linked to completed service requests
