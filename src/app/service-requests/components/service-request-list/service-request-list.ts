@@ -1,5 +1,9 @@
 import { Component, signal, inject, OnInit } from '@angular/core';
-import { ServiceRequest, ServiceRequestStatus } from '../../../models/service-request.model';
+import {
+  ServiceRequest,
+  ServiceRequestStatus,
+  UpdateServiceRequestStatus,
+} from '../../../models/service-request.model';
 import { ActivatedRoute } from '@angular/router';
 import { ServiceRequestStore } from '../../services/service-request-store';
 import { finalize } from 'rxjs';
@@ -22,6 +26,8 @@ export class ServiceRequestList implements OnInit {
   readonly isSentMode = this.route.snapshot.data['direction'] === 'sent';
   readonly serviceRequestStatus = ServiceRequestStatus;
   readonly servicePricingType = ServicePricingType;
+  readonly updatingRequestId = signal<number | null>(null);
+  readonly statusUpdateError = signal<string | null>(null);
 
   ngOnInit(): void {
     this.isLoading.set(true);
@@ -39,5 +45,38 @@ export class ServiceRequestList implements OnInit {
         this.loadError.set('Impossible de charger vos demandes. Veuillez réessayer.');
       },
     });
+  }
+
+  onUpdateStatus(
+    serviceRequest: ServiceRequest,
+    status: UpdateServiceRequestStatus['status'],
+  ): void {
+    if (
+      this.isSentMode ||
+      this.updatingRequestId() !== null ||
+      serviceRequest.status === ServiceRequestStatus.ACCEPTED ||
+      serviceRequest.status === ServiceRequestStatus.REJECTED ||
+      serviceRequest.status === status
+    ) {
+      return;
+    }
+
+    this.updatingRequestId.set(serviceRequest.id);
+    this.statusUpdateError.set(null);
+    this.serviceRequestsStore
+      .updateStatus(serviceRequest.id, { status })
+      .pipe(finalize(() => this.updatingRequestId.set(null)))
+      .subscribe({
+        next: (updatedRequest) => {
+          this.serviceRequests.update((serviceRequests) =>
+            serviceRequests.map((serviceRequest) =>
+              serviceRequest.id === updatedRequest.id ? updatedRequest : serviceRequest,
+            ),
+          );
+        },
+        error: () => {
+          this.statusUpdateError.set('Impossible de modifier cette demande. Veuillez réessayer.');
+        },
+      });
   }
 }

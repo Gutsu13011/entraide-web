@@ -11,7 +11,7 @@ describe('ServiceRequestList', () => {
   let component: ServiceRequestList;
   let fixture: ComponentFixture<ServiceRequestList>;
   const routeStub = { snapshot: { data: { direction: 'sent' } } };
-  const storeStub = { getSent: vi.fn(), getReceived: vi.fn() };
+  const storeStub = { getSent: vi.fn(), getReceived: vi.fn(), updateStatus: vi.fn() };
   const sentRequest: ServiceRequest = {
     id: 42,
     message: 'Bonjour, je souhaite repeindre ma chambre.',
@@ -72,6 +72,7 @@ describe('ServiceRequestList', () => {
   }
 
   beforeEach(async () => {
+    storeStub.updateStatus.mockReset();
     storeStub.getSent.mockReset().mockReturnValue(of(sentRequests));
     storeStub.getReceived.mockReset().mockReturnValue(of(receivedRequests));
     await TestBed.configureTestingModule({
@@ -182,7 +183,9 @@ describe('ServiceRequestList', () => {
               ? 'Prestation gratuite'
               : `${request.offeringHourlyRateSnapshot} € / heure`;
           expect(paragraphs).toContain(expectedPrice);
-          expect(paragraphs).toContain('Demande envoyée');
+          expect(
+            card.querySelector('.request-header .status-badge__label')?.textContent?.trim(),
+          ).toBe('Demande envoyée');
           const time = card.querySelector('time');
           expect(time?.getAttribute('datetime')).toBe(request.createdAt);
           const expectedDate = new Intl.DateTimeFormat('fr-FR', {
@@ -194,6 +197,40 @@ describe('ServiceRequestList', () => {
         });
         expect(element().querySelector('[role="alert"]')).toBeNull();
         expect(element().querySelector('[role="status"]')).toBeNull();
+      },
+    );
+
+    const statusLabels = [
+      { status: ServiceRequestStatus.SENT, label: 'Demande envoyée', variant: 'sent' },
+      { status: ServiceRequestStatus.READ, label: 'Demande lue', variant: 'read' },
+      { status: ServiceRequestStatus.ACCEPTED, label: 'Demande acceptée', variant: 'accepted' },
+      { status: ServiceRequestStatus.REJECTED, label: 'Demande refusée', variant: 'rejected' },
+    ];
+
+    it.each(modes.flatMap((mode) => statusLabels.map((entry) => ({ ...mode, ...entry }))))(
+      'should display one $status badge beside the title in the $direction list',
+      ({ direction, method, requests, status, label, variant }) => {
+        const request = { ...requests[0], status };
+        storeStub[method].mockReturnValue(of([request]));
+
+        createList(direction);
+
+        const cards = element().querySelectorAll('.service-request');
+        expect(cards).toHaveLength(1);
+        const header = cards[0].querySelector('.request-header');
+        expect(header?.querySelector('h3')?.textContent?.trim()).toBe(
+          request.offeringTitleSnapshot,
+        );
+        const badges = cards[0].querySelectorAll('.status-badge');
+        expect(badges).toHaveLength(1);
+        expect(header?.contains(badges[0])).toBe(true);
+        expect(badges[0].querySelector('.status-badge__label')?.textContent?.trim()).toBe(label);
+        expect(badges[0].classList.contains(`status-badge--${variant}`)).toBe(true);
+        expect(badges[0].querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+        for (const other of statusLabels.filter((entry) => entry.status !== status)) {
+          expect(cards[0].textContent).not.toContain(other.label);
+        }
+        expect(component.serviceRequests()).toEqual([request]);
       },
     );
 
@@ -281,6 +318,365 @@ describe('ServiceRequestList', () => {
       );
       expect(cards[0].textContent).not.toContain('null');
       expect(cards[0].textContent).not.toContain('undefined');
+    });
+  });
+
+  describe('status updates', () => {
+    const activeRequest = receivedRequests[0];
+    const otherRequest: ServiceRequest = { ...activeRequest, id: 45, message: 'Autre demande' };
+    const errorMessage = 'Impossible de modifier cette demande. Veuillez réessayer.';
+
+    it.each([
+      { from: ServiceRequestStatus.SENT, to: ServiceRequestStatus.READ },
+      { from: ServiceRequestStatus.SENT, to: ServiceRequestStatus.ACCEPTED },
+      { from: ServiceRequestStatus.SENT, to: ServiceRequestStatus.REJECTED },
+      { from: ServiceRequestStatus.READ, to: ServiceRequestStatus.ACCEPTED },
+      { from: ServiceRequestStatus.READ, to: ServiceRequestStatus.REJECTED },
+    ] as const)(
+      'should update only the matching received request from $from to $to using the API response',
+      ({ from, to }) => {
+        const original = { ...activeRequest, status: from };
+        const updated = { ...original, status: to };
+        storeStub.getReceived.mockReturnValue(of([original, otherRequest]));
+        storeStub.updateStatus.mockReturnValue(of(updated));
+        createList('received');
+
+        component.onUpdateStatus(original, to);
+
+        expect(storeStub.updateStatus).toHaveBeenCalledExactlyOnceWith(original.id, { status: to });
+        expect(component.serviceRequests()).toEqual([updated, otherRequest]);
+        expect(component.serviceRequests()[0]).toBe(updated);
+        expect(component.serviceRequests()[1]).toBe(otherRequest);
+        expect(original.status).toBe(from);
+        expect(component.statusUpdateError()).toBeNull();
+        expect(component.updatingRequestId()).toBeNull();
+        expect(storeStub.getReceived).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it('should block status changes in the sent list without calling the API', () => {
+      createList('sent');
+
+      component.onUpdateStatus(sentRequest, ServiceRequestStatus.ACCEPTED);
+
+      expect(storeStub.updateStatus).not.toHaveBeenCalled();
+      expect(component.serviceRequests()).toEqual(sentRequests);
+      expect(component.updatingRequestId()).toBeNull();
+      expect(component.statusUpdateError()).toBeNull();
+    });
+
+    it.each([ServiceRequestStatus.ACCEPTED, ServiceRequestStatus.REJECTED])(
+      'should block updates to a request already in the final %s status',
+      (status) => {
+        const original = { ...activeRequest, status };
+        storeStub.getReceived.mockReturnValue(of([original]));
+        createList('received');
+
+        component.onUpdateStatus(original, ServiceRequestStatus.READ);
+
+        expect(storeStub.updateStatus).not.toHaveBeenCalled();
+        expect(component.serviceRequests()).toEqual([original]);
+        expect(component.updatingRequestId()).toBeNull();
+      },
+    );
+
+    it('should ignore an update to the current READ status', () => {
+      const original = { ...activeRequest, status: ServiceRequestStatus.READ };
+      storeStub.getReceived.mockReturnValue(of([original]));
+      createList('received');
+
+      component.onUpdateStatus(original, ServiceRequestStatus.READ);
+
+      expect(storeStub.updateStatus).not.toHaveBeenCalled();
+      expect(component.serviceRequests()).toEqual([original]);
+      expect(component.updatingRequestId()).toBeNull();
+    });
+
+    it('should block a repeated click and an update to another card while one update is pending', () => {
+      const response$ = new Subject<ServiceRequest>();
+      storeStub.getReceived.mockReturnValue(of([activeRequest, otherRequest]));
+      storeStub.updateStatus.mockReturnValue(response$);
+      createList('received');
+
+      component.onUpdateStatus(activeRequest, ServiceRequestStatus.ACCEPTED);
+      component.onUpdateStatus(activeRequest, ServiceRequestStatus.ACCEPTED);
+      component.onUpdateStatus(otherRequest, ServiceRequestStatus.REJECTED);
+
+      expect(storeStub.updateStatus).toHaveBeenCalledExactlyOnceWith(activeRequest.id, {
+        status: ServiceRequestStatus.ACCEPTED,
+      });
+      expect(component.updatingRequestId()).toBe(activeRequest.id);
+      expect(component.serviceRequests()).toEqual([activeRequest, otherRequest]);
+      response$.complete();
+      expect(component.updatingRequestId()).toBeNull();
+    });
+
+    it('should keep the old status until the response and clear the pending id only on completion', () => {
+      const response$ = new Subject<ServiceRequest>();
+      const updated = { ...activeRequest, status: ServiceRequestStatus.READ };
+      storeStub.updateStatus.mockReturnValue(response$);
+      createList('received');
+      component.statusUpdateError.set('Ancienne erreur');
+
+      component.onUpdateStatus(activeRequest, ServiceRequestStatus.READ);
+
+      expect(component.updatingRequestId()).toBe(activeRequest.id);
+      expect(component.statusUpdateError()).toBeNull();
+      expect(component.serviceRequests()).toEqual(receivedRequests);
+      fixture.detectChanges();
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('Demande envoyée');
+
+      response$.next(updated);
+      fixture.detectChanges();
+      expect(component.serviceRequests()).toEqual([updated]);
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('Demande lue');
+      expect(component.updatingRequestId()).toBe(activeRequest.id);
+
+      response$.complete();
+      expect(component.updatingRequestId()).toBeNull();
+    });
+
+    it.each([400, 401, 403, 404, 409])(
+      'should preserve the list and expose an action error after an HTTP %s failure',
+      (status) => {
+        const response$ = new Subject<ServiceRequest>();
+        storeStub.updateStatus.mockReturnValue(response$);
+        createList('received');
+
+        component.onUpdateStatus(activeRequest, ServiceRequestStatus.ACCEPTED);
+        response$.error(new HttpErrorResponse({ status }));
+        fixture.detectChanges();
+
+        expect(component.serviceRequests()).toEqual(receivedRequests);
+        expect(component.statusUpdateError()).toBe(errorMessage);
+        expect(component.loadError()).toBeNull();
+        expect(component.updatingRequestId()).toBeNull();
+        expect(
+          (fixture.nativeElement as HTMLElement).querySelectorAll('.service-request'),
+        ).toHaveLength(1);
+      },
+    );
+
+    it('should allow a new attempt after failure and clear the previous action error', () => {
+      const firstResponse$ = new Subject<ServiceRequest>();
+      const updated = { ...activeRequest, status: ServiceRequestStatus.ACCEPTED };
+      storeStub.updateStatus.mockReturnValueOnce(firstResponse$).mockReturnValueOnce(of(updated));
+      createList('received');
+      component.onUpdateStatus(activeRequest, ServiceRequestStatus.ACCEPTED);
+      firstResponse$.error(new HttpErrorResponse({ status: 500 }));
+      expect(component.statusUpdateError()).toBe(errorMessage);
+
+      component.onUpdateStatus(activeRequest, ServiceRequestStatus.ACCEPTED);
+
+      expect(storeStub.updateStatus).toHaveBeenCalledTimes(2);
+      expect(component.statusUpdateError()).toBeNull();
+      expect(component.updatingRequestId()).toBeNull();
+      expect(component.serviceRequests()).toEqual([updated]);
+    });
+
+    it('should allow a historical request update while preserving its nullable offering and free snapshot', () => {
+      const historical: ServiceRequest = {
+        ...activeRequest,
+        serviceOfferingId: null,
+        offeringPricingTypeSnapshot: ServicePricingType.FREE,
+        offeringHourlyRateSnapshot: null,
+      };
+      const updated = { ...historical, status: ServiceRequestStatus.ACCEPTED };
+      storeStub.getReceived.mockReturnValue(of([historical]));
+      storeStub.updateStatus.mockReturnValue(of(updated));
+      createList('received');
+
+      component.onUpdateStatus(historical, ServiceRequestStatus.ACCEPTED);
+
+      expect(storeStub.updateStatus).toHaveBeenCalledExactlyOnceWith(historical.id, {
+        status: ServiceRequestStatus.ACCEPTED,
+      });
+      expect(component.serviceRequests()).toEqual([updated]);
+    });
+  });
+
+  describe('status action interactions', () => {
+    const activeRequest = receivedRequests[0];
+    const otherRequest = { ...activeRequest, id: 45, message: 'Autre demande' };
+
+    function element(): HTMLElement {
+      return fixture.nativeElement as HTMLElement;
+    }
+
+    function buttons(card: Element): HTMLButtonElement[] {
+      return Array.from(card.querySelectorAll<HTMLButtonElement>('.request-actions button'));
+    }
+
+    function button(label: string, card: Element = element()): HTMLButtonElement {
+      const match = buttons(card).find((candidate) => candidate.textContent?.trim() === label);
+      expect(match, `Missing button: ${label}`).toBeDefined();
+      return match!;
+    }
+
+    it.each(
+      modes.flatMap((mode) =>
+        Object.values(ServiceRequestStatus).map((status) => ({ ...mode, status })),
+      ),
+    )(
+      'should show only the allowed action buttons for $status in the $direction list',
+      ({ direction, method, requests, status }) => {
+        storeStub[method].mockReturnValue(of([{ ...requests[0], status }]));
+        createList(direction);
+
+        const expected =
+          direction === 'sent'
+            ? []
+            : status === ServiceRequestStatus.SENT
+              ? ['Marquer comme lue', 'Accepter', 'Refuser']
+              : status === ServiceRequestStatus.READ
+                ? ['Accepter', 'Refuser']
+                : [];
+        expect(buttons(element()).map((candidate) => candidate.textContent?.trim())).toEqual(
+          expected,
+        );
+        for (const action of buttons(element())) {
+          expect(action.type).toBe('button');
+          expect(action.disabled).toBe(false);
+        }
+        expect(storeStub.updateStatus).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      {
+        from: ServiceRequestStatus.SENT,
+        to: ServiceRequestStatus.READ,
+        label: 'Marquer comme lue',
+        result: 'Demande lue',
+      },
+      {
+        from: ServiceRequestStatus.SENT,
+        to: ServiceRequestStatus.ACCEPTED,
+        label: 'Accepter',
+        result: 'Demande acceptée',
+      },
+      {
+        from: ServiceRequestStatus.SENT,
+        to: ServiceRequestStatus.REJECTED,
+        label: 'Refuser',
+        result: 'Demande refusée',
+      },
+      {
+        from: ServiceRequestStatus.READ,
+        to: ServiceRequestStatus.ACCEPTED,
+        label: 'Accepter',
+        result: 'Demande acceptée',
+      },
+      {
+        from: ServiceRequestStatus.READ,
+        to: ServiceRequestStatus.REJECTED,
+        label: 'Refuser',
+        result: 'Demande refusée',
+      },
+    ] as const)(
+      'should change $from to $to through the $label button after API success',
+      ({ from, to, label, result }) => {
+        const original = { ...activeRequest, status: from };
+        const updated = { ...original, status: to };
+        const response$ = new Subject<ServiceRequest>();
+        storeStub.getReceived.mockReturnValue(of([original]));
+        storeStub.updateStatus.mockReturnValue(response$);
+        createList('received');
+
+        button(label).click();
+        fixture.detectChanges();
+
+        expect(storeStub.updateStatus).toHaveBeenCalledExactlyOnceWith(original.id, { status: to });
+        expect(component.serviceRequests()).toEqual([original]);
+        response$.next(updated);
+        response$.complete();
+        fixture.detectChanges();
+
+        expect(element().textContent).toContain(result);
+        expect(element().querySelector('[role="status"]')).toBeNull();
+        expect(buttons(element()).map((candidate) => candidate.textContent?.trim())).toEqual(
+          to === ServiceRequestStatus.READ ? ['Accepter', 'Refuser'] : [],
+        );
+      },
+    );
+
+    it('should disable all action buttons and show progress only on the card being updated', () => {
+      const response$ = new Subject<ServiceRequest>();
+      storeStub.getReceived.mockReturnValue(of([activeRequest, otherRequest]));
+      storeStub.updateStatus.mockReturnValue(response$);
+      createList('received');
+      const cards = element().querySelectorAll('.service-request');
+      const accept = button('Accepter', cards[0]);
+      const otherReject = button('Refuser', cards[1]);
+
+      accept.click();
+      fixture.detectChanges();
+
+      expect(buttons(element()).every((candidate) => candidate.disabled)).toBe(true);
+      expect(cards[0].querySelector('[role="status"]')?.textContent?.trim()).toBe(
+        'Modification en cours…',
+      );
+      expect(cards[1].querySelector('[role="status"]')).toBeNull();
+      accept.click();
+      otherReject.click();
+      expect(storeStub.updateStatus).toHaveBeenCalledTimes(1);
+
+      response$.next({ ...activeRequest, status: ServiceRequestStatus.ACCEPTED });
+      response$.complete();
+      fixture.detectChanges();
+
+      expect(buttons(cards[0])).toHaveLength(0);
+      expect(buttons(cards[1]).every((candidate) => !candidate.disabled)).toBe(true);
+      expect(element().querySelector('[role="status"]')).toBeNull();
+    });
+
+    it.each([403, 409])(
+      'should display an HTTP %s action error as one alert without hiding the cards',
+      (status) => {
+        const response$ = new Subject<ServiceRequest>();
+        storeStub.getReceived.mockReturnValue(of([activeRequest, otherRequest]));
+        storeStub.updateStatus.mockReturnValue(response$);
+        createList('received');
+
+        button('Accepter', element().querySelectorAll('.service-request')[0]).click();
+        response$.error(new HttpErrorResponse({ status }));
+        fixture.detectChanges();
+
+        const alerts = element().querySelectorAll('[role="alert"]');
+        expect(alerts).toHaveLength(1);
+        expect(alerts[0].classList.contains('error-message')).toBe(true);
+        expect(alerts[0].textContent?.trim()).toBe(
+          'Impossible de modifier cette demande. Veuillez réessayer.',
+        );
+        expect(element().querySelectorAll('.service-request')).toHaveLength(2);
+        expect(component.serviceRequests()).toEqual([activeRequest, otherRequest]);
+        expect(buttons(element()).every((candidate) => !candidate.disabled)).toBe(true);
+        expect(element().querySelector('[role="status"]')).toBeNull();
+      },
+    );
+
+    it('should clear the displayed error on retry and show the successful result', () => {
+      const first$ = new Subject<ServiceRequest>();
+      const second$ = new Subject<ServiceRequest>();
+      storeStub.updateStatus.mockReturnValueOnce(first$).mockReturnValueOnce(second$);
+      createList('received');
+      button('Accepter').click();
+      first$.error(new HttpErrorResponse({ status: 500 }));
+      fixture.detectChanges();
+      expect(element().querySelector('[role="alert"]')).not.toBeNull();
+
+      button('Accepter').click();
+      fixture.detectChanges();
+
+      expect(element().querySelector('[role="alert"]')).toBeNull();
+      expect(element().querySelector('[role="status"]')).not.toBeNull();
+      expect(storeStub.updateStatus).toHaveBeenCalledTimes(2);
+      second$.next({ ...activeRequest, status: ServiceRequestStatus.ACCEPTED });
+      second$.complete();
+      fixture.detectChanges();
+      expect(element().textContent).toContain('Demande acceptée');
+      expect(element().querySelector('[role="alert"]')).toBeNull();
+      expect(buttons(element())).toHaveLength(0);
     });
   });
 });

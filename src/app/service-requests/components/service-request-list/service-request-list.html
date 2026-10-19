@@ -4,9 +4,65 @@
 } @else if (loadError(); as message) {
   <p class="error-message" role="alert">{{ message }}</p>
 } @else {
+  @if (statusUpdateError(); as message) {
+    <p class="error-message" role="alert">{{ message }}</p>
+  }
   @for (serviceRequest of serviceRequests(); track serviceRequest.id) {
     <article class="service-request">
-      <h3>{{ serviceRequest.offeringTitleSnapshot }}</h3>
+      <header class="request-header">
+        <h3>{{ serviceRequest.offeringTitleSnapshot }}</h3>
+        <span
+          class="status-badge"
+          [class.status-badge--sent]="serviceRequest.status === serviceRequestStatus.SENT"
+          [class.status-badge--read]="serviceRequest.status === serviceRequestStatus.READ"
+          [class.status-badge--accepted]="serviceRequest.status === serviceRequestStatus.ACCEPTED"
+          [class.status-badge--rejected]="serviceRequest.status === serviceRequestStatus.REJECTED"
+        >
+          <svg
+            class="status-badge__icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            @switch (serviceRequest.status) {
+              @case (serviceRequestStatus.SENT) {
+                <path d="M7 17 17 7M7 7h10v10" />
+              }
+              @case (serviceRequestStatus.READ) {
+                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+                <circle cx="12" cy="12" r="3" />
+              }
+              @case (serviceRequestStatus.ACCEPTED) {
+                <path d="m5 12 4 4L19 6" />
+              }
+              @case (serviceRequestStatus.REJECTED) {
+                <path d="m6 6 12 12M18 6 6 18" />
+              }
+            }
+          </svg>
+          <span class="status-badge__label">
+            @switch (serviceRequest.status) {
+              @case (serviceRequestStatus.SENT) {
+                Demande envoyée
+              }
+              @case (serviceRequestStatus.READ) {
+                Demande lue
+              }
+              @case (serviceRequestStatus.ACCEPTED) {
+                Demande acceptée
+              }
+              @case (serviceRequestStatus.REJECTED) {
+                Demande refusée
+              }
+            }
+          </span>
+        </span>
+      </header>
       @if (isSentMode) {
         <p>À: {{ serviceRequest.recipient.firstName }} {{ serviceRequest.recipient.lastName }}</p>
       } @else {
@@ -18,8 +74,44 @@
       } @else {
         <p>{{ serviceRequest.offeringHourlyRateSnapshot }} € / heure</p>
       }
-      @if (serviceRequest.status === serviceRequestStatus.SENT) {
-        <p>Demande envoyée</p>
+      @if (
+        !isSentMode &&
+        (serviceRequest.status === serviceRequestStatus.READ ||
+          serviceRequest.status === serviceRequestStatus.SENT)
+      ) {
+        <div class="request-actions">
+          @if (serviceRequest.status === serviceRequestStatus.SENT) {
+            <button
+              type="button"
+              class="secondary-button"
+              [disabled]="updatingRequestId() !== null"
+              (click)="onUpdateStatus(serviceRequest, serviceRequestStatus.READ)"
+            >
+              Marquer comme lue
+            </button>
+          }
+
+          <button
+            type="button"
+            [disabled]="updatingRequestId() !== null"
+            (click)="onUpdateStatus(serviceRequest, serviceRequestStatus.ACCEPTED)"
+          >
+            Accepter
+          </button>
+
+          <button
+            type="button"
+            class="danger-button"
+            [disabled]="updatingRequestId() !== null"
+            (click)="onUpdateStatus(serviceRequest, serviceRequestStatus.REJECTED)"
+          >
+            Refuser
+          </button>
+        </div>
+      }
+
+      @if (updatingRequestId() === serviceRequest.id) {
+        <p role="status">Modification en cours…</p>
       }
       <time [attr.datetime]="serviceRequest.createdAt">{{
         serviceRequest.createdAt | date: 'dd/MM/yyyy'

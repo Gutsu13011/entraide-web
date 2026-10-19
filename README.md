@@ -31,6 +31,7 @@ service.
 - Offering title, description and free or hourly pricing displayed before sending a request
 - Request submission with validation, pending state, duplicate prevention and retry after failure
 - Private sent and received request pages through a shared list component
+- Recipient actions to mark requests as read, accept or reject them, with pending and error states
 - Request participants, messages, historical offering titles and pricing, status and dates displayed in cards
 - Signed-in account links to request lists in the header
 - Manual logout opens login and closes the current page, including private request lists
@@ -56,8 +57,8 @@ Authentication state is currently stored in memory and is cleared when
 the page is reloaded.
 
 Service request creation and private sent and received request pages are
-implemented. Requests currently have the initial `SENT` status; provider replies
-and further status transitions are planned.
+implemented. Recipients can mark requests as read, accept them or reject them.
+Reply messages and the completion workflow are planned.
 The current version is intended for local development and demonstration.
 
 ## Requirements
@@ -228,7 +229,8 @@ data selecting the endpoint and page title.
 
 Sent requests display the recipient's first and last names; received requests
 display the requester's names. Each card includes the message, creation date,
-initial status displayed as "Demande envoyée", and the offering title and pricing
+status displayed as "Demande envoyée", "Demande lue", "Demande acceptée" or
+"Demande refusée", and the offering title and pricing
 snapshots. Changing or deleting an offering does not remove these historical
 values from the request list. The cards preserve message line breaks and the
 order returned by the API.
@@ -237,7 +239,28 @@ Loading, successful empty responses and loading failures have separate views.
 Switching between the two pages loads the selected list. Manual logout removes
 the account links and opens login, leaving the private list page.
 
-There are no provider reply or status-update actions yet.
+### Recipient status actions
+
+In "Demandes reçues", a `SENT` request offers "Marquer comme lue", "Accepter"
+and "Refuser". A `READ` request offers only "Accepter" and "Refuser".
+Accepted and rejected requests have no further status actions in the current
+workflow. Sent lists display the status without action buttons.
+
+Actions send only `status` to `PATCH /service-requests/:id/status`. All status
+buttons are disabled during an update, with progress shown on the selected
+card. The card is replaced with the API response only after success; the
+other cards remain unchanged. Failure preserves the list, shows an error and
+re-enables actions. A new attempt clears the previous error.
+
+Viewing a list does not mark requests as read. The API independently checks
+that the authenticated account is the recorded recipient and validates the
+transition. If another action already changed the request, the API can return
+`409 Conflict`; the interface currently shows the generic action error and
+does not automatically reload the list. Status changes do not update other
+open pages in real time. Historical requests remain actionable after their
+offering is deleted.
+
+Reply messages and completion actions are not implemented yet.
 
 ## Quality checks
 
@@ -268,5 +291,5 @@ creates a production build.
 - A session expiry notification and return to login
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
-- Provider replies and further service request status transitions
+- Reply messages and service request completion workflow
 - Reviews linked to completed service requests

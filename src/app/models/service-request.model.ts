@@ -27,4 +27,11 @@ export interface ServiceRequestParticipant {
 
 export enum ServiceRequestStatus {
   SENT = 'SENT',
+  READ = 'READ',
+  ACCEPTED = 'ACCEPTED',
+  REJECTED = 'REJECTED',
+}
+
+export interface UpdateServiceRequestStatus {
+  status: Exclude<ServiceRequestStatus, ServiceRequestStatus.SENT>;
 }

@@ -5,6 +5,7 @@ import {
   CreateServiceRequest,
   ServiceRequest,
   ServiceRequestStatus,
+  UpdateServiceRequestStatus,
 } from '../../models/service-request.model';
 import { ServicePricingType } from '../../models/service-offering.model';
 
@@ -161,4 +162,98 @@ describe('ServiceRequestStore', () => {
       );
     },
   );
+
+  describe('updateStatus', () => {
+    const updateUrl = 'http://localhost:3000/service-requests/42/status';
+    const statuses: UpdateServiceRequestStatus['status'][] = [
+      ServiceRequestStatus.READ,
+      ServiceRequestStatus.ACCEPTED,
+      ServiceRequestStatus.REJECTED,
+    ];
+
+    it.each(statuses)(
+      'should patch only the requested %s status and return the updated request after the response',
+      (status) => {
+        const nextSpy = vi.fn();
+        const completeSpy = vi.fn();
+        const errorSpy = vi.fn();
+        const response: ServiceRequest = { ...hourlyRequest, status };
+
+        service.updateStatus(42, { status }).subscribe({
+          next: nextSpy,
+          complete: completeSpy,
+          error: errorSpy,
+        });
+
+        const pending = httpTesting.expectOne(updateUrl);
+        expect(pending.request.method).toBe('PATCH');
+        expect(pending.request.body).toEqual({ status });
+        expect(nextSpy).not.toHaveBeenCalled();
+        expect(completeSpy).not.toHaveBeenCalled();
+
+        pending.flush(response);
+
+        expect(nextSpy).toHaveBeenCalledExactlyOnceWith(response);
+        expect(completeSpy).toHaveBeenCalledTimes(1);
+        expect(errorSpy).not.toHaveBeenCalled();
+        expect(hourlyRequest.status).toBe(ServiceRequestStatus.SENT);
+      },
+    );
+
+    it('should return the updated historical request with its deleted offering and free snapshot intact', () => {
+      const nextSpy = vi.fn();
+      const response: ServiceRequest = {
+        ...deletedOfferingRequest,
+        status: ServiceRequestStatus.ACCEPTED,
+      };
+
+      service.updateStatus(43, { status: ServiceRequestStatus.ACCEPTED }).subscribe(nextSpy);
+
+      const pending = httpTesting.expectOne('http://localhost:3000/service-requests/43/status');
+      expect(pending.request.method).toBe('PATCH');
+      expect(pending.request.body).toEqual({ status: ServiceRequestStatus.ACCEPTED });
+      pending.flush(response);
+
+      expect(nextSpy).toHaveBeenCalledExactlyOnceWith(response);
+    });
+
+    it.each([
+      { status: 400, statusText: 'Bad Request', message: 'Invalid status' },
+      { status: 401, statusText: 'Unauthorized', message: 'Unauthorized' },
+      {
+        status: 403,
+        statusText: 'Forbidden',
+        message: 'Only the recipient can update this request',
+      },
+      { status: 404, statusText: 'Not Found', message: 'Service request not found' },
+      {
+        status: 409,
+        statusText: 'Conflict',
+        message: 'Service request changed. Refresh and try again',
+      },
+    ])(
+      'should propagate a status update failure with status $status without emitting success',
+      ({ status, statusText, message }) => {
+        const nextSpy = vi.fn();
+        const completeSpy = vi.fn();
+        const errorSpy = vi.fn();
+        const errorBody = { message };
+
+        service.updateStatus(42, { status: ServiceRequestStatus.ACCEPTED }).subscribe({
+          next: nextSpy,
+          complete: completeSpy,
+          error: errorSpy,
+        });
+
+        const pending = httpTesting.expectOne(updateUrl);
+        pending.flush(errorBody, { status, statusText });
+
+        expect(nextSpy).not.toHaveBeenCalled();
+        expect(completeSpy).not.toHaveBeenCalled();
+        expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ status, error: errorBody }),
+        );
+      },
+    );
+  });
 });

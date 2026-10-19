@@ -1,6 +1,10 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Service } from '@angular/core';
-import { CreateServiceRequest, ServiceRequest } from '../../models/service-request.model';
+import {
+  CreateServiceRequest,
+  ServiceRequest,
+  UpdateServiceRequestStatus,
+} from '../../models/service-request.model';
 import { Observable } from 'rxjs';
 
 @Service()
@@ -25,5 +29,15 @@ export class ServiceRequestStore {
 
   getReceived(): Observable<ServiceRequest[]> {
     return this.http.get<ServiceRequest[]>(`${this.url}/service-requests/received`);
+  }
+
+  updateStatus(
+    id: number,
+    updateServiceRequestStatus: UpdateServiceRequestStatus,
+  ): Observable<ServiceRequest> {
+    return this.http.patch<ServiceRequest>(
+      `${this.url}/service-requests/${id}/status`,
+      updateServiceRequestStatus,
+    );
   }
 }
