@@ -30,6 +30,7 @@ export enum ServiceRequestStatus {
   READ = 'READ',
   ACCEPTED = 'ACCEPTED',
   REJECTED = 'REJECTED',
+  COMPLETED = 'COMPLETED',
 }
 
 export interface UpdateServiceRequestStatus {

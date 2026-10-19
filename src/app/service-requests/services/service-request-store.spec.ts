@@ -169,6 +169,7 @@ describe('ServiceRequestStore', () => {
       ServiceRequestStatus.READ,
       ServiceRequestStatus.ACCEPTED,
       ServiceRequestStatus.REJECTED,
+      ServiceRequestStatus.COMPLETED,
     ];
 
     it.each(statuses)(

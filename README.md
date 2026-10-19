@@ -31,7 +31,7 @@ service.
 - Offering title, description and free or hourly pricing displayed before sending a request
 - Request submission with validation, pending state, duplicate prevention and retry after failure
 - Private sent and received request pages through a shared list component
-- Recipient actions to mark requests as read, accept or reject them, with pending and error states
+- Recipient actions to mark requests as read, accept or reject them, and complete accepted requests, with pending and error states
 - Request participants, messages, historical offering titles and pricing, status and dates displayed in cards
 - Signed-in account links to request lists in the header
 - Manual logout opens login and closes the current page, including private request lists
@@ -57,8 +57,8 @@ Authentication state is currently stored in memory and is cleared when
 the page is reloaded.
 
 Service request creation and private sent and received request pages are
-implemented. Recipients can mark requests as read, accept them or reject them.
-Reply messages and the completion workflow are planned.
+implemented. Recipients can mark requests as read, accept or reject them,
+and mark accepted requests as completed. Reply messages are planned.
 The current version is intended for local development and demonstration.
 
 ## Requirements
@@ -230,7 +230,7 @@ data selecting the endpoint and page title.
 Sent requests display the recipient's first and last names; received requests
 display the requester's names. Each card includes the message, creation date,
 status displayed as "Demande envoyée", "Demande lue", "Demande acceptée" or
-"Demande refusée", and the offering title and pricing
+"Demande refusée", or "Prestation terminée", and the offering title and pricing
 snapshots. Changing or deleting an offering does not remove these historical
 values from the request list. The cards preserve message line breaks and the
 order returned by the API.
@@ -243,8 +243,9 @@ the account links and opens login, leaving the private list page.
 
 In "Demandes reçues", a `SENT` request offers "Marquer comme lue", "Accepter"
 and "Refuser". A `READ` request offers only "Accepter" and "Refuser".
-Accepted and rejected requests have no further status actions in the current
-workflow. Sent lists display the status without action buttons.
+An `ACCEPTED` request offers "Marquer comme terminée" and can transition only
+to `COMPLETED`. Rejected and completed requests have no further status actions.
+Sent lists display the status without action buttons.
 
 Actions send only `status` to `PATCH /service-requests/:id/status`. All status
 buttons are disabled during an update, with progress shown on the selected
@@ -260,7 +261,13 @@ does not automatically reload the list. Status changes do not update other
 open pages in real time. Historical requests remain actionable after their
 offering is deleted.
 
-Reply messages and completion actions are not implemented yet.
+Completion shows a green badge with white text and a circled check next to
+the offering title. Like other updates, it waits for API confirmation before
+changing the card; a failed attempt keeps the accepted state and allows retry.
+The API independently requires the recorded recipient and an accepted request.
+Completion currently records only the status, without a completion timestamp.
+
+Reply messages are not implemented yet.
 
 ## Quality checks
 
@@ -291,5 +298,5 @@ creates a production build.
 - A session expiry notification and return to login
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
-- Reply messages and service request completion workflow
+- Service request reply messages
 - Reviews linked to completed service requests

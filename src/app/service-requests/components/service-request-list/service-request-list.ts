@@ -54,9 +54,13 @@ export class ServiceRequestList implements OnInit {
     if (
       this.isSentMode ||
       this.updatingRequestId() !== null ||
-      serviceRequest.status === ServiceRequestStatus.ACCEPTED ||
       serviceRequest.status === ServiceRequestStatus.REJECTED ||
-      serviceRequest.status === status
+      serviceRequest.status === ServiceRequestStatus.COMPLETED ||
+      serviceRequest.status === status ||
+      (status === ServiceRequestStatus.COMPLETED &&
+        serviceRequest.status !== ServiceRequestStatus.ACCEPTED) ||
+      (serviceRequest.status === ServiceRequestStatus.ACCEPTED &&
+        status !== ServiceRequestStatus.COMPLETED)
     ) {
       return;
     }

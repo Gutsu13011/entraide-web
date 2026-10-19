@@ -17,6 +17,7 @@
           [class.status-badge--read]="serviceRequest.status === serviceRequestStatus.READ"
           [class.status-badge--accepted]="serviceRequest.status === serviceRequestStatus.ACCEPTED"
           [class.status-badge--rejected]="serviceRequest.status === serviceRequestStatus.REJECTED"
+          [class.status-badge--completed]="serviceRequest.status === serviceRequestStatus.COMPLETED"
         >
           <svg
             class="status-badge__icon"
@@ -43,6 +44,10 @@
               @case (serviceRequestStatus.REJECTED) {
                 <path d="m6 6 12 12M18 6 6 18" />
               }
+              @case (serviceRequestStatus.COMPLETED) {
+                <circle cx="12" cy="12" r="9" />
+                <path d="m8 12 3 3 5-6" />
+              }
             }
           </svg>
           <span class="status-badge__label">
@@ -58,6 +63,9 @@
               }
               @case (serviceRequestStatus.REJECTED) {
                 Demande refusée
+              }
+              @case (serviceRequestStatus.COMPLETED) {
+                Prestation terminée
               }
             }
           </span>
@@ -106,6 +114,18 @@
             (click)="onUpdateStatus(serviceRequest, serviceRequestStatus.REJECTED)"
           >
             Refuser
+          </button>
+        </div>
+      }
+
+      @if (!isSentMode && serviceRequest.status === serviceRequestStatus.ACCEPTED) {
+        <div class="request-actions">
+          <button
+            type="button"
+            [disabled]="updatingRequestId() !== null"
+            (click)="onUpdateStatus(serviceRequest, serviceRequestStatus.COMPLETED)"
+          >
+            Marquer comme terminée
           </button>
         </div>
       }

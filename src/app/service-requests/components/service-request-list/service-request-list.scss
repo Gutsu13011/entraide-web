@@ -71,6 +71,12 @@
   color: var(--color-primary-hover);
 }
 
+.status-badge--completed {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary);
+  color: #ffffff;
+}
+
 .status-badge--rejected {
   background-color: var(--color-danger-background);
   color: var(--color-danger);
