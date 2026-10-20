@@ -28,6 +28,7 @@ export class ReviewForm {
   readonly isSubmitting = signal<boolean>(false);
   readonly submitError = signal<string | null>(null);
   readonly reviewCreated = output<Review>();
+  readonly reviewCancelled = output<void>();
 
   onSubmit(): void {
     if (this.isSubmitting()) {
@@ -57,5 +58,13 @@ export class ReviewForm {
           this.submitError.set('Impossible de publier votre avis. Veuillez réessayer.');
         },
       });
+  }
+
+  onCancel(): void {
+    if (this.isSubmitting()) {
+      return;
+    }
+
+    this.reviewCancelled.emit();
   }
 }

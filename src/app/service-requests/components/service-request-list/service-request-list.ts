@@ -72,6 +72,10 @@ export class ServiceRequestList implements OnInit {
     this.reviewingRequestId.set(null);
   }
 
+  onReviewCancelled(): void {
+    this.reviewingRequestId.set(null);
+  }
+
   onUpdateStatus(
     serviceRequest: ServiceRequest,
     status: UpdateServiceRequestStatus['status'],

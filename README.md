@@ -283,6 +283,10 @@ Choosing the action opens an inline form on that card and disables other review
 opening buttons. The form accepts an integer rating from 1 to 5 and a comment
 containing at least one non-whitespace character. Validation feedback appears
 after interaction or an invalid submission. The select retains numeric ratings.
+The red "Annuler" button closes the form, discards its draft and re-enables the
+other review actions without publishing anything. Reopening starts a fresh form.
+Cancellation is disabled while publication is pending and becomes available
+again if submission fails.
 
 Submission posts only `serviceRequestId`, `rating` and `comment` to
 `POST /service-providers/:serviceProviderId/reviews`. The authentication

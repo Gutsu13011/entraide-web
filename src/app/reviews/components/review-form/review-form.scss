@@ -53,11 +53,18 @@ textarea {
   resize: vertical;
 }
 
+.review-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
 button {
-  align-self: flex-start;
   max-width: 100%;
   min-height: 2.75rem;
-  margin-top: 1rem;
   padding: 0.75rem 1rem;
   border: 1px solid var(--color-primary);
   border-radius: 0.5rem;
@@ -68,16 +75,22 @@ button {
   cursor: pointer;
 }
 
+.danger-button {
+  margin-inline-start: auto;
+}
+
+.danger-button:not(:disabled) {
+  border-color: var(--color-danger);
+  background-color: var(--color-danger);
+}
+
+.danger-button:not(:disabled):hover {
+  filter: brightness(0.9);
+}
+
 button:disabled {
   border-color: var(--color-border);
   background-color: var(--color-border);
   color: var(--color-muted);
   cursor: wait;
-}
-
-@media (max-width: 36rem) {
-  button {
-    align-self: stretch;
-    width: 100%;
-  }
 }

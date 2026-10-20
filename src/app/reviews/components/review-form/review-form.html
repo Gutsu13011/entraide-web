@@ -16,13 +16,18 @@
   @if (reviewForm.controls.comment.touched && reviewForm.controls.comment.invalid) {
     <p class="field-error">Le commentaire doit contenir du texte</p>
   }
-  <button type="submit" [disabled]="isSubmitting()">
-    @if (isSubmitting()) {
-      Publication en cours...
-    } @else {
-      Publier mon avis
-    }
-  </button>
+  <div class="review-form-actions">
+    <button type="submit" [disabled]="isSubmitting()">
+      @if (isSubmitting()) {
+        Publication en cours...
+      } @else {
+        Publier mon avis
+      }
+    </button>
+    <button class="danger-button" type="button" (click)="onCancel()" [disabled]="isSubmitting()">
+      Annuler
+    </button>
+  </div>
   @if (submitError(); as message) {
     <p class="error-message" role="alert">{{ message }}</p>
   }

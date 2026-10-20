@@ -189,6 +189,41 @@ describe('ReviewForm', () => {
     });
   });
 
+  describe('onCancel', () => {
+    it('should emit cancellation without publishing a review even when the form is invalid', () => {
+      const cancelledSpy = vi.fn();
+      const createdSpy = vi.fn();
+      component.reviewCancelled.subscribe(cancelledSpy);
+      component.reviewCreated.subscribe(createdSpy);
+
+      component.onCancel();
+
+      expect(cancelledSpy).toHaveBeenCalledExactlyOnceWith(undefined);
+      expect(createdSpy).not.toHaveBeenCalled();
+      expect(reviewStoreStub.add).not.toHaveBeenCalled();
+      expect(component.reviewForm.untouched).toBe(true);
+    });
+
+    it('should refuse cancellation during submission and allow it again after a server error', () => {
+      const response$ = new Subject<Review>();
+      const cancelledSpy = vi.fn();
+      component.reviewCancelled.subscribe(cancelledSpy);
+      reviewStoreStub.add.mockReturnValue(response$);
+      component.reviewForm.setValue({ rating: 4, comment: 'Service apprécié.' });
+      component.onSubmit();
+
+      component.onCancel();
+
+      expect(cancelledSpy).not.toHaveBeenCalled();
+      expect(component.isSubmitting()).toBe(true);
+      response$.error(new HttpErrorResponse({ status: 503 }));
+      component.onCancel();
+      expect(cancelledSpy).toHaveBeenCalledExactlyOnceWith(undefined);
+      expect(component.isSubmitting()).toBe(false);
+      expect(reviewStoreStub.add).toHaveBeenCalledOnce();
+    });
+  });
+
   describe('template', () => {
     function element(): HTMLElement {
       return fixture.nativeElement as HTMLElement;

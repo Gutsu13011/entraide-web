@@ -438,6 +438,35 @@ describe('ServiceRequestList', () => {
       return cards;
     }
 
+    it('should disable cancellation while publishing and allow closing the form after a failed response', () => {
+      const response$ = new Subject<Review>();
+      const cards = openAndSubmitReview(response$);
+      const cancelButton = cards[1].querySelector<HTMLButtonElement>(
+        'app-review-form button[type="button"]',
+      )!;
+      expect(cancelButton.disabled).toBe(true);
+
+      cancelButton.click();
+      fixture.detectChanges();
+
+      expect(component.reviewingRequestId()).toBe(completed.id);
+      expect(cards[1].querySelector('app-review-form')).not.toBeNull();
+      response$.error(new HttpErrorResponse({ status: 503 }));
+      fixture.detectChanges();
+      expect(cancelButton.disabled).toBe(false);
+      expect(cards[1].querySelector('textarea')?.value).toBe('Prestation soignée.');
+      cancelButton.click();
+      fixture.detectChanges();
+      expect(component.reviewingRequestId()).toBeNull();
+      expect(cards[1].querySelector('app-review-form')).toBeNull();
+      expect(component.reviewedRequestIds()).toEqual([]);
+      expect(cards[1].querySelector('.review-success')).toBeNull();
+      expect(reviewStoreStub.add).toHaveBeenCalledOnce();
+      expect(cards[0].querySelector<HTMLButtonElement>('.request-actions button')!.disabled).toBe(
+        false,
+      );
+    });
+
     it('should append the reviewed request id immutably and close the current form without changing the requests', () => {
       storeStub.getSent.mockReturnValue(of([completed]));
       createList('sent');
@@ -574,6 +603,57 @@ describe('ServiceRequestList', () => {
       expect(component.reviewingRequestId()).toBe(42);
       expect(fixture.debugElement.queryAll(By.directive(ReviewForm))).toHaveLength(1);
       expect(reviewStoreStub.add).not.toHaveBeenCalled();
+    });
+
+    it('should discard a cancelled draft, re-enable review actions and reopen fresh forms without publishing', () => {
+      const completed = { ...sentRequest, status: ServiceRequestStatus.COMPLETED };
+      const another = { ...completed, id: 43 };
+      storeStub.getSent.mockReturnValue(of([another, completed]));
+      createList('sent');
+      component.reviewedRequestIds.set([40]);
+      const requestsBefore = component.serviceRequests();
+      const cards = element().querySelectorAll('.service-request');
+      const openButton = cards[1].querySelector<HTMLButtonElement>('.request-actions button')!;
+      openButton.click();
+      fixture.detectChanges();
+      const child = fixture.debugElement.query(By.directive(ReviewForm))
+        .componentInstance as ReviewForm;
+      child.reviewForm.setValue({ rating: 2, comment: 'Brouillon à abandonner.' });
+      fixture.detectChanges();
+      const cancelButton = cards[1].querySelector<HTMLButtonElement>(
+        'app-review-form button[type="button"]',
+      )!;
+      expect(cancelButton.textContent).toContain('Annuler');
+      expect(cancelButton.disabled).toBe(false);
+
+      cancelButton.click();
+      fixture.detectChanges();
+
+      expect(element().querySelector('app-review-form')).toBeNull();
+      expect(component.reviewingRequestId()).toBeNull();
+      expect(component.reviewedRequestIds()).toEqual([40]);
+      expect(component.serviceRequests()).toBe(requestsBefore);
+      expect(element().querySelector('.review-success')).toBeNull();
+      for (const card of cards) {
+        expect(card.querySelector<HTMLButtonElement>('.request-actions button')!.disabled).toBe(
+          false,
+        );
+      }
+      openButton.click();
+      fixture.detectChanges();
+      const reopened = fixture.debugElement.query(By.directive(ReviewForm))
+        .componentInstance as ReviewForm;
+      expect(reopened).not.toBe(child);
+      expect(reopened.reviewForm.getRawValue()).toEqual({ rating: 5, comment: '' });
+      expect(reopened.reviewForm.untouched).toBe(true);
+      cards[1].querySelector<HTMLButtonElement>('app-review-form button[type="button"]')!.click();
+      fixture.detectChanges();
+      cards[0].querySelector<HTMLButtonElement>('.request-actions button')!.click();
+      fixture.detectChanges();
+      expect(component.reviewingRequestId()).toBe(another.id);
+      expect(cards[0].querySelector('app-review-form')).not.toBeNull();
+      expect(reviewStoreStub.add).not.toHaveBeenCalled();
+      expect(storeStub.updateStatus).not.toHaveBeenCalled();
     });
 
     it('should hide the review action and form after provider deletion even if the request id is selected', () => {

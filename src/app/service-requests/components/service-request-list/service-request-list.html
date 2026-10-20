@@ -151,6 +151,7 @@
                 [serviceProviderId]="serviceRequest.serviceProviderId"
                 [serviceRequestId]="serviceRequest.id"
                 (reviewCreated)="onReviewCreated(serviceRequest.id)"
+                (reviewCancelled)="onReviewCancelled()"
               ></app-review-form>
             }
           </div>
