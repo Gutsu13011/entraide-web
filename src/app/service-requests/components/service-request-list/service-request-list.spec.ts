@@ -6,12 +6,17 @@ import { ServiceRequestList } from './service-request-list';
 import { ServiceRequestStore } from '../../services/service-request-store';
 import { ServiceRequest, ServiceRequestStatus } from '../../../models/service-request.model';
 import { ServicePricingType } from '../../../models/service-offering.model';
+import { ReviewForm } from '../../../reviews/components/review-form/review-form';
+import { ReviewStore } from '../../../reviews/services/review-store';
+import { By } from '@angular/platform-browser';
+import type { Review } from '../../../models/review.model';
 
 describe('ServiceRequestList', () => {
   let component: ServiceRequestList;
   let fixture: ComponentFixture<ServiceRequestList>;
   const routeStub = { snapshot: { data: { direction: 'sent' } } };
   const storeStub = { getSent: vi.fn(), getReceived: vi.fn(), updateStatus: vi.fn() };
+  const reviewStoreStub = { add: vi.fn() };
   const sentRequest: ServiceRequest = {
     id: 42,
     message: 'Bonjour, je souhaite repeindre ma chambre.',
@@ -20,6 +25,7 @@ describe('ServiceRequestList', () => {
     requesterUserId: 8,
     recipientUserId: 9,
     serviceOfferingId: 12,
+    serviceProviderId: 7,
     offeringTitleSnapshot: 'Peinture',
     offeringPricingTypeSnapshot: ServicePricingType.HOURLY,
     offeringHourlyRateSnapshot: 35,
@@ -72,6 +78,7 @@ describe('ServiceRequestList', () => {
   }
 
   beforeEach(async () => {
+    reviewStoreStub.add.mockReset();
     storeStub.updateStatus.mockReset();
     storeStub.getSent.mockReset().mockReturnValue(of(sentRequests));
     storeStub.getReceived.mockReset().mockReturnValue(of(receivedRequests));
@@ -80,6 +87,7 @@ describe('ServiceRequestList', () => {
       providers: [
         { provide: ActivatedRoute, useValue: routeStub },
         { provide: ServiceRequestStore, useValue: storeStub },
+        { provide: ReviewStore, useValue: reviewStoreStub },
       ],
     }).compileComponents();
   });
@@ -323,6 +331,266 @@ describe('ServiceRequestList', () => {
       );
       expect(cards[0].textContent).not.toContain('null');
       expect(cards[0].textContent).not.toContain('undefined');
+    });
+  });
+
+  describe('review opening', () => {
+    const completedRequest: ServiceRequest = {
+      ...sentRequest,
+      status: ServiceRequestStatus.COMPLETED,
+    };
+
+    it('should select a completed sent request without changing the list or calling the update API', () => {
+      storeStub.getSent.mockReturnValue(of([completedRequest]));
+      createList('sent');
+      const requestsBefore = component.serviceRequests();
+      expect(component.reviewingRequestId()).toBeNull();
+
+      component.onOpenReview(completedRequest);
+
+      expect(component.reviewingRequestId()).toBe(completedRequest.id);
+      expect(component.serviceRequests()).toBe(requestsBefore);
+      expect(storeStub.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('should refuse a completed received request even when the provider exists and no form is open', () => {
+      const received = { ...receivedRequests[0], status: ServiceRequestStatus.COMPLETED };
+      storeStub.getReceived.mockReturnValue(of([received]));
+      createList('received');
+
+      component.onOpenReview(received);
+
+      expect(component.reviewingRequestId()).toBeNull();
+      expect(storeStub.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ServiceRequestStatus.SENT,
+      ServiceRequestStatus.READ,
+      ServiceRequestStatus.ACCEPTED,
+      ServiceRequestStatus.REJECTED,
+    ])(
+      'should refuse a sent request with status %s even when the provider exists and no form is open',
+      (status) => {
+        const candidate = { ...completedRequest, status };
+        storeStub.getSent.mockReturnValue(of([candidate]));
+        createList('sent');
+
+        component.onOpenReview(candidate);
+
+        expect(component.reviewingRequestId()).toBeNull();
+        expect(storeStub.updateStatus).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should refuse a completed sent request whose provider was deleted', () => {
+      const historical = { ...completedRequest, serviceProviderId: null, serviceOfferingId: null };
+      storeStub.getSent.mockReturnValue(of([historical]));
+      createList('sent');
+
+      component.onOpenReview(historical);
+
+      expect(component.reviewingRequestId()).toBeNull();
+    });
+
+    it('should keep the current review form selected when another completed request is opened', () => {
+      const anotherRequest = { ...completedRequest, id: 43 };
+      storeStub.getSent.mockReturnValue(of([completedRequest, anotherRequest]));
+      createList('sent');
+      component.reviewingRequestId.set(completedRequest.id);
+
+      component.onOpenReview(anotherRequest);
+
+      expect(component.reviewingRequestId()).toBe(completedRequest.id);
+    });
+
+    it('should allow reviewing a completed sent request after offering deletion when the provider still exists', () => {
+      const historical = { ...completedRequest, serviceOfferingId: null };
+      storeStub.getSent.mockReturnValue(of([historical]));
+      createList('sent');
+
+      component.onOpenReview(historical);
+
+      expect(component.reviewingRequestId()).toBe(historical.id);
+    });
+  });
+
+  describe('review publication confirmation', () => {
+    const completed = { ...sentRequest, status: ServiceRequestStatus.COMPLETED };
+    const otherRequest = { ...completed, id: 43 };
+
+    function openAndSubmitReview(response$: Subject<Review>) {
+      reviewStoreStub.add.mockReturnValue(response$);
+      storeStub.getSent.mockReturnValue(of([otherRequest, completed]));
+      createList('sent');
+      const cards = fixture.nativeElement.querySelectorAll(
+        '.service-request',
+      ) as NodeListOf<HTMLElement>;
+      cards[1].querySelector<HTMLButtonElement>('.request-actions button')!.click();
+      fixture.detectChanges();
+      const textarea = cards[1].querySelector('textarea')!;
+      textarea.value = 'Prestation soignée.';
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      cards[1]
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      fixture.detectChanges();
+      return cards;
+    }
+
+    it('should append the reviewed request id immutably and close the current form without changing the requests', () => {
+      storeStub.getSent.mockReturnValue(of([completed]));
+      createList('sent');
+      const previousIds = [40];
+      component.reviewedRequestIds.set(previousIds);
+      component.reviewingRequestId.set(completed.id);
+      const previousRequests = component.serviceRequests();
+
+      component.onReviewCreated(completed.id);
+
+      expect(component.reviewedRequestIds()).toEqual([40, 42]);
+      expect(component.reviewedRequestIds()).not.toBe(previousIds);
+      expect(previousIds).toEqual([40]);
+      expect(component.reviewingRequestId()).toBeNull();
+      expect(component.serviceRequests()).toBe(previousRequests);
+      expect(storeStub.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('should refuse reopening an already reviewed request even when all other opening conditions pass', () => {
+      storeStub.getSent.mockReturnValue(of([completed]));
+      createList('sent');
+      component.reviewedRequestIds.set([completed.id]);
+
+      component.onOpenReview(completed);
+
+      expect(component.reviewingRequestId()).toBeNull();
+      expect(component.reviewedRequestIds()).toEqual([completed.id]);
+    });
+
+    it('should confirm only the published request and allow another request for the same provider to be reviewed', () => {
+      const response$ = new Subject<Review>();
+      const cards = openAndSubmitReview(response$);
+      const previousRequests = component.serviceRequests();
+      expect(reviewStoreStub.add).toHaveBeenCalledExactlyOnceWith(7, {
+        serviceRequestId: 42,
+        rating: 5,
+        comment: 'Prestation soignée.',
+      });
+      expect(component.reviewedRequestIds()).toEqual([]);
+      expect(cards[1].querySelector('.review-success')).toBeNull();
+      expect(cards[1].querySelector('app-review-form')).not.toBeNull();
+      expect(component.reviewingRequestId()).toBe(42);
+
+      response$.next({
+        id: 8,
+        authorName: 'Alice Martin',
+        rating: 5,
+        comment: 'Prestation soignée.',
+        createdAt: '2026-10-20T14:00:00.000Z',
+        serviceProviderId: 7,
+      });
+      response$.complete();
+      fixture.detectChanges();
+
+      expect(component.reviewedRequestIds()).toEqual([42]);
+      expect(component.reviewingRequestId()).toBeNull();
+      expect(cards[1].querySelector('app-review-form')).toBeNull();
+      expect(cards[1].querySelector('button')).toBeNull();
+      const confirmation = cards[1].querySelector('.review-success');
+      expect(confirmation?.getAttribute('role')).toBe('status');
+      expect(confirmation?.textContent).toContain('Votre avis a été publié');
+      expect(cards[0].querySelector('.review-success')).toBeNull();
+      const otherButton = cards[0].querySelector<HTMLButtonElement>('.request-actions button')!;
+      expect(otherButton.disabled).toBe(false);
+      expect(component.serviceRequests()).toBe(previousRequests);
+      expect(storeStub.updateStatus).not.toHaveBeenCalled();
+
+      otherButton.click();
+      fixture.detectChanges();
+
+      const child = fixture.debugElement.query(By.directive(ReviewForm))
+        .componentInstance as ReviewForm;
+      expect(child.serviceProviderId()).toBe(7);
+      expect(child.serviceRequestId()).toBe(43);
+      expect(component.reviewingRequestId()).toBe(43);
+      expect(reviewStoreStub.add).toHaveBeenCalledOnce();
+    });
+
+    it.each([403, 409])(
+      'should keep the form open and leave the request unreviewed after an HTTP %s error',
+      (status) => {
+        const response$ = new Subject<Review>();
+        const cards = openAndSubmitReview(response$);
+
+        response$.error(new HttpErrorResponse({ status }));
+        fixture.detectChanges();
+
+        expect(component.reviewedRequestIds()).toEqual([]);
+        expect(component.reviewingRequestId()).toBe(42);
+        expect(cards[1].querySelector('.review-success')).toBeNull();
+        expect(cards[1].querySelector('app-review-form')).not.toBeNull();
+        expect(cards[1].querySelector('[role="alert"]')?.textContent).toContain(
+          'Impossible de publier votre avis',
+        );
+        expect(cards[1].querySelector('textarea')?.value).toBe('Prestation soignée.');
+        expect(cards[1].querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(
+          false,
+        );
+        expect(storeStub.updateStatus).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  describe('review opening interactions', () => {
+    function element(): HTMLElement {
+      return fixture.nativeElement as HTMLElement;
+    }
+
+    it('should open only the clicked request form with its provider and request ids and disable other review buttons', () => {
+      const completed = { ...sentRequest, status: ServiceRequestStatus.COMPLETED };
+      const another = { ...completed, id: 43, serviceProviderId: 13 };
+      storeStub.getSent.mockReturnValue(of([another, completed]));
+      createList('sent');
+      const cards = element().querySelectorAll('.service-request');
+      expect(element().querySelector('app-review-form')).toBeNull();
+      const firstButton = cards[0].querySelector<HTMLButtonElement>('.request-actions button')!;
+      const selectedButton = cards[1].querySelector<HTMLButtonElement>('.request-actions button')!;
+
+      selectedButton.click();
+      fixture.detectChanges();
+
+      expect(component.reviewingRequestId()).toBe(42);
+      expect(cards[0].querySelector('app-review-form')).toBeNull();
+      expect(cards[1].querySelector('app-review-form')).not.toBeNull();
+      const children = fixture.debugElement.queryAll(By.directive(ReviewForm));
+      expect(children).toHaveLength(1);
+      const child = children[0].componentInstance as ReviewForm;
+      expect(child.serviceProviderId()).toBe(7);
+      expect(child.serviceRequestId()).toBe(42);
+      expect(firstButton.disabled).toBe(true);
+      expect(selectedButton.disabled).toBe(true);
+      firstButton.click();
+      fixture.detectChanges();
+      expect(component.reviewingRequestId()).toBe(42);
+      expect(fixture.debugElement.queryAll(By.directive(ReviewForm))).toHaveLength(1);
+      expect(reviewStoreStub.add).not.toHaveBeenCalled();
+    });
+
+    it('should hide the review action and form after provider deletion even if the request id is selected', () => {
+      const historical = {
+        ...sentRequest,
+        status: ServiceRequestStatus.COMPLETED,
+        serviceOfferingId: null,
+        serviceProviderId: null,
+      };
+      storeStub.getSent.mockReturnValue(of([historical]));
+      createList('sent');
+      component.reviewingRequestId.set(historical.id);
+      fixture.detectChanges();
+
+      expect(element().textContent).not.toContain('Donner mon avis');
+      expect(element().querySelector('app-review-form')).toBeNull();
+      expect(reviewStoreStub.add).not.toHaveBeenCalled();
     });
   });
 
@@ -607,7 +875,9 @@ describe('ServiceRequestList', () => {
 
         const expected =
           direction === 'sent'
-            ? []
+            ? status === ServiceRequestStatus.COMPLETED
+              ? ['Donner mon avis']
+              : []
             : status === ServiceRequestStatus.SENT
               ? ['Marquer comme lue', 'Accepter', 'Refuser']
               : status === ServiceRequestStatus.READ

@@ -25,6 +25,7 @@ describe('ServiceRequestStore', () => {
     requesterUserId: 8,
     recipientUserId: 9,
     serviceOfferingId: 12,
+    serviceProviderId: 7,
     offeringTitleSnapshot: 'Peinture',
     offeringPricingTypeSnapshot: ServicePricingType.HOURLY,
     offeringHourlyRateSnapshot: 35,
@@ -39,6 +40,12 @@ describe('ServiceRequestStore', () => {
     offeringTitleSnapshot: 'Conseil gratuit',
     offeringPricingTypeSnapshot: ServicePricingType.FREE,
     offeringHourlyRateSnapshot: null,
+  };
+
+  const deletedProviderRequest: ServiceRequest = {
+    ...deletedOfferingRequest,
+    id: 44,
+    serviceProviderId: null,
   };
 
   beforeEach(() => {
@@ -81,7 +88,7 @@ describe('ServiceRequestStore', () => {
   ])(
     'should fetch $path requests and preserve participants, snapshots and nullable fields',
     ({ method, path }) => {
-      const response = [hourlyRequest, deletedOfferingRequest];
+      const response = [hourlyRequest, deletedOfferingRequest, deletedProviderRequest];
       const nextSpy = vi.fn();
 
       service[method]().subscribe(nextSpy);

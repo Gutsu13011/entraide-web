@@ -105,6 +105,12 @@
   margin-top: 1rem;
 }
 
+.request-actions app-review-form {
+  flex: 1 0 100%;
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
 .request-actions button {
   display: inline-flex;
   align-items: center;
@@ -157,4 +163,13 @@
   margin-top: 0.75rem;
   color: var(--color-muted);
   font-size: 0.875rem;
+}
+
+.service-request .review-success {
+  padding: 0.75rem 1rem;
+  border-left: 4px solid var(--color-primary);
+  border-radius: 0.5rem;
+  background-color: #e6f4ef;
+  color: var(--color-primary);
+  font-weight: 600;
 }

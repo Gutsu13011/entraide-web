@@ -1,0 +1,83 @@
+:host {
+  display: block;
+  min-width: 0;
+  max-width: 40rem;
+  margin-inline: auto;
+  overflow-wrap: anywhere;
+}
+
+.page-title {
+  margin-bottom: 0.875rem;
+  color: var(--color-primary);
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: clamp(1rem, 4vw, 1.5rem);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background-color: var(--color-surface);
+}
+
+label {
+  margin-top: 0.75rem;
+  font-weight: 600;
+}
+
+label:first-child {
+  margin-top: 0;
+}
+
+select,
+textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+
+select {
+  max-width: 10rem;
+  min-height: 2.75rem;
+}
+
+textarea {
+  min-height: 8rem;
+  resize: vertical;
+}
+
+button {
+  align-self: flex-start;
+  max-width: 100%;
+  min-height: 2.75rem;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-primary);
+  border-radius: 0.5rem;
+  background-color: var(--color-primary);
+  color: #ffffff;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+button:disabled {
+  border-color: var(--color-border);
+  background-color: var(--color-border);
+  color: var(--color-muted);
+  cursor: wait;
+}
+
+@media (max-width: 36rem) {
+  button {
+    align-self: stretch;
+    width: 100%;
+  }
+}

@@ -6,3 +6,9 @@ export interface Review {
   createdAt: string;
   serviceProviderId: number;
 }
+
+export interface CreateReview {
+  serviceRequestId: number;
+  rating: number;
+  comment: string;
+}

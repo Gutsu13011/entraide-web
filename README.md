@@ -17,6 +17,7 @@ service.
 - Search, city and availability filters, sorting and pagination
 - Service provider detail pages
 - Review summaries and review lists on provider detail pages
+- Inline review creation from completed sent requests, with validation, pending and error states and local publication confirmation
 - Multiple service offerings per provider, with independent free or hourly pricing on detail pages
 - Service offering creation and editing through a shared validated reactive form
 - Service provider creation and editing through a shared validated reactive form
@@ -58,7 +59,9 @@ the page is reloaded.
 
 Service request creation and private sent and received request pages are
 implemented. Recipients can mark requests as read, accept or reject them,
-and mark accepted requests as completed. Reply messages are planned.
+and mark accepted requests as completed. Requesters can publish reviews from
+completed sent requests. Publication confirmation is currently kept in memory
+for the lifetime of the request list page. Reply messages are planned.
 The current version is intended for local development and demonstration.
 
 ## Requirements
@@ -245,7 +248,7 @@ In "Demandes reçues", a `SENT` request offers "Marquer comme lue", "Accepter"
 and "Refuser". A `READ` request offers only "Accepter" and "Refuser".
 An `ACCEPTED` request offers "Marquer comme terminée" and can transition only
 to `COMPLETED`. Rejected and completed requests have no further status actions.
-Sent lists display the status without action buttons.
+Sent lists have no status update actions; eligible completed requests can offer review creation.
 
 Actions send only `status` to `PATCH /service-requests/:id/status`. All status
 buttons are disabled during an update, with progress shown on the selected
@@ -268,6 +271,39 @@ The API independently requires the recorded recipient and an accepted request.
 Completion currently records only the status, without a completion timestamp.
 
 Reply messages are not implemented yet.
+
+## Reviews from completed requests
+
+In "Demandes envoyées", a completed request with a non-null `serviceProviderId`
+shows "Donner mon avis". Received requests and requests whose provider was
+deleted do not show this action. Deleting only the offering preserves the
+provider link, so the request can still be reviewed.
+
+Choosing the action opens an inline form on that card and disables other review
+opening buttons. The form accepts an integer rating from 1 to 5 and a comment
+containing at least one non-whitespace character. Validation feedback appears
+after interaction or an invalid submission. The select retains numeric ratings.
+
+Submission posts only `serviceRequestId`, `rating` and `comment` to
+`POST /service-providers/:serviceProviderId/reviews`. The authentication
+interceptor attaches the access token. The API determines the author from the
+requester's account and checks request ownership, completion and uniqueness.
+Public review responses contain `id`, `authorName`, `rating`, `comment`,
+`createdAt` and `serviceProviderId`.
+
+While submission is pending, the publish button is disabled and displays
+progress. Success emits the created review to the list, closes the form and
+replaces the selected card's action with "Votre avis a été publié". Other
+completed requests, including requests to the same provider, remain eligible.
+An error keeps the form and entered values, shows a generic error message and
+re-enables submission. The associated request status and snapshots are unchanged.
+
+The list tracks reviewed request identifiers in memory. Returning to the list
+resets this local confirmation, so an already reviewed request may show the
+action again; the API still rejects a duplicate with `409 Conflict`. Restoring
+review indicators from the private API responses is planned. Public review
+lists and summaries are fetched when opening the provider detail page; this
+submission flow does not update other open pages in real time.
 
 ## Quality checks
 
@@ -299,4 +335,4 @@ creates a production build.
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
 - Service request reply messages
-- Reviews linked to completed service requests
+- Persistent review indicators when returning to sent requests

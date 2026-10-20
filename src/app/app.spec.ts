@@ -155,6 +155,7 @@ describe('App request navigation', () => {
     requesterUserId: 8,
     recipientUserId: 9,
     serviceOfferingId: null,
+    serviceProviderId: null,
     offeringTitleSnapshot: 'Conseil gratuit',
     offeringPricingTypeSnapshot: ServicePricingType.FREE,
     offeringHourlyRateSnapshot: null,

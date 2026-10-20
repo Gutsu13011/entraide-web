@@ -9,9 +9,10 @@ import { ServiceRequestStore } from '../../services/service-request-store';
 import { finalize } from 'rxjs';
 import { DatePipe } from '@angular/common';
 import { ServicePricingType } from '../../../models/service-offering.model';
+import { ReviewForm } from '../../../reviews/components/review-form/review-form';
 
 @Component({
-  imports: [DatePipe],
+  imports: [DatePipe, ReviewForm],
   selector: 'app-service-request-list',
   styleUrl: './service-request-list.scss',
   templateUrl: './service-request-list.html',
@@ -28,6 +29,8 @@ export class ServiceRequestList implements OnInit {
   readonly servicePricingType = ServicePricingType;
   readonly updatingRequestId = signal<number | null>(null);
   readonly statusUpdateError = signal<string | null>(null);
+  readonly reviewingRequestId = signal<number | null>(null);
+  readonly reviewedRequestIds = signal<number[]>([]);
 
   ngOnInit(): void {
     this.isLoading.set(true);
@@ -45,6 +48,28 @@ export class ServiceRequestList implements OnInit {
         this.loadError.set('Impossible de charger vos demandes. Veuillez réessayer.');
       },
     });
+  }
+
+  onOpenReview(serviceRequest: ServiceRequest): void {
+    if (
+      !this.isSentMode ||
+      this.reviewingRequestId() !== null ||
+      serviceRequest.status !== ServiceRequestStatus.COMPLETED ||
+      serviceRequest.serviceProviderId === null ||
+      this.reviewedRequestIds().includes(serviceRequest.id)
+    ) {
+      return;
+    }
+
+    this.reviewingRequestId.set(serviceRequest.id);
+  }
+
+  onReviewCreated(serviceRequestId: number): void {
+    this.reviewedRequestIds.update((reviewedRequestIds) => [
+      ...reviewedRequestIds,
+      serviceRequestId,
+    ]);
+    this.reviewingRequestId.set(null);
   }
 
   onUpdateStatus(

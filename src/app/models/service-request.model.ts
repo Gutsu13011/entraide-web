@@ -8,6 +8,7 @@ export interface ServiceRequest {
   requesterUserId: number;
   recipientUserId: number;
   serviceOfferingId: number | null;
+  serviceProviderId: number | null;
   offeringTitleSnapshot: string;
   offeringPricingTypeSnapshot: ServicePricingType;
   offeringHourlyRateSnapshot: number | null;

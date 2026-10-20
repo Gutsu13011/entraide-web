@@ -32,6 +32,7 @@ describe('ServiceRequestForm', () => {
     requesterUserId: 8,
     recipientUserId: 9,
     serviceOfferingId: 12,
+    serviceProviderId: 7,
     offeringTitleSnapshot: hourlyOffering.title,
     offeringPricingTypeSnapshot: ServicePricingType.HOURLY,
     offeringHourlyRateSnapshot: 35,

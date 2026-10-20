@@ -1,0 +1,29 @@
+<h2 class="page-title">Envoyer un avis</h2>
+<form [formGroup]="reviewForm" (ngSubmit)="onSubmit()" novalidate>
+  <label for="rating">Note</label>
+  <select id="rating" formControlName="rating">
+    <option [ngValue]="1">1 / 5</option>
+    <option [ngValue]="2">2 / 5</option>
+    <option [ngValue]="3">3 / 5</option>
+    <option [ngValue]="4">4 / 5</option>
+    <option [ngValue]="5">5 / 5</option>
+  </select>
+  @if (reviewForm.controls.rating.touched && reviewForm.controls.rating.invalid) {
+    <p class="field-error">Choisissez une note comprise entre 1 et 5</p>
+  }
+  <label for="comment">Votre commentaire</label>
+  <textarea id="comment" formControlName="comment" [rows]="6"></textarea>
+  @if (reviewForm.controls.comment.touched && reviewForm.controls.comment.invalid) {
+    <p class="field-error">Le commentaire doit contenir du texte</p>
+  }
+  <button type="submit" [disabled]="isSubmitting()">
+    @if (isSubmitting()) {
+      Publication en cours...
+    } @else {
+      Publier mon avis
+    }
+  </button>
+  @if (submitError(); as message) {
+    <p class="error-message" role="alert">{{ message }}</p>
+  }
+</form>
