@@ -151,6 +151,7 @@ describe('App request navigation', () => {
     id: 42,
     message: 'Message privé de la demande',
     status: ServiceRequestStatus.SENT,
+    hasReview: false,
     createdAt: '2026-10-12T10:30:00.000Z',
     requesterUserId: 8,
     recipientUserId: 9,
@@ -230,6 +231,14 @@ describe('App request navigation', () => {
       fixture.detectChanges();
 
       expect(router.url).toBe(`/service-requests/${direction}`);
+      expect(element().querySelectorAll('nav a.nav-link-active')).toHaveLength(1);
+      const activeLink = element().querySelector<HTMLAnchorElement>('nav a.nav-link-active')!;
+      expect(activeLink.getAttribute('href')).toBe(`/service-requests/${direction}`);
+      expect(activeLink.getAttribute('aria-current')).toBe('page');
+      const inactiveLinks = element().querySelectorAll('nav a:not(.nav-link-active)');
+      for (const link of inactiveLinks) {
+        expect(link.hasAttribute('aria-current')).toBe(false);
+      }
       httpTesting
         .expectOne(`http://localhost:3000/service-requests/${direction}`)
         .flush([direction === 'sent' ? sentRequest : receivedRequest]);
@@ -240,6 +249,62 @@ describe('App request navigation', () => {
       expect(authSessionStub.isAuthenticated()).toBe(true);
     },
   );
+
+  it('should move the active navigation class and aria-current between home and both request lists', async () => {
+    async function navigateAndCheck(path: string) {
+      await router.navigateByUrl(path);
+      fixture.detectChanges();
+      if (path === '/') {
+        httpTesting
+          .expectOne(
+            (request) =>
+              request.method === 'GET' && request.url === 'http://localhost:3000/service-providers',
+          )
+          .flush({ data: [], total: 0, page: 1, limit: 10, totalPages: 0 });
+      } else {
+        httpTesting.expectOne(`http://localhost:3000${path}`).flush([]);
+      }
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const links = element().querySelectorAll<HTMLAnchorElement>('nav a');
+      expect(element().querySelectorAll('nav a.nav-link-active')).toHaveLength(1);
+      expect(element().querySelectorAll('nav a[aria-current="page"]')).toHaveLength(1);
+      for (const link of links) {
+        const shouldBeActive = link.getAttribute('href') === path;
+        expect(link.classList.contains('nav-link-active')).toBe(shouldBeActive);
+        expect(link.getAttribute('aria-current')).toBe(shouldBeActive ? 'page' : null);
+      }
+    }
+
+    for (const path of ['/', '/service-requests/sent', '/service-requests/received', '/']) {
+      await navigateAndCheck(path);
+    }
+    expect(authSessionStub.isAuthenticated()).toBe(true);
+  });
+
+  it('should move the active navigation class and aria-current between login and registration for anonymous visitors', async () => {
+    authSessionStub.currentUser.set(null);
+    authSessionStub.isAuthenticated.set(false);
+    fixture.detectChanges();
+
+    for (const path of ['/login', '/register', '/login']) {
+      element().querySelector<HTMLAnchorElement>(`nav a[href="${path}"]`)!.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(router.url).toBe(path);
+      expect(element().querySelectorAll('nav a.nav-link-active')).toHaveLength(1);
+      expect(element().querySelectorAll('nav a[aria-current="page"]')).toHaveLength(1);
+      for (const link of element().querySelectorAll<HTMLAnchorElement>('nav a')) {
+        const active = link.getAttribute('href') === path;
+        expect(link.classList.contains('nav-link-active')).toBe(active);
+        expect(link.getAttribute('aria-current')).toBe(active ? 'page' : null);
+      }
+      expect(element().querySelector('nav a[href="/service-requests/sent"]')).toBeNull();
+      expect(element().querySelector('nav a[href="/service-requests/received"]')).toBeNull();
+    }
+    httpTesting.expectNone(() => true);
+  });
 
   it.each(['sent', 'received'])(
     'should remove private %s requests and open login when the logout button is clicked',
@@ -258,6 +323,14 @@ describe('App request navigation', () => {
       expect(element().textContent).not.toContain(sentRequest.message);
       expect(router.url).toBe('/login');
       expect(element().querySelector('main h2')?.textContent?.trim()).toBe('Connexion');
+      expect(element().querySelectorAll('nav a.nav-link-active')).toHaveLength(1);
+      expect(element().querySelector('nav a.nav-link-active')?.getAttribute('href')).toBe('/login');
+      expect(element().querySelector('nav a[href="/login"]')?.getAttribute('aria-current')).toBe(
+        'page',
+      );
+      expect(element().querySelector('nav a[href="/register"]')?.hasAttribute('aria-current')).toBe(
+        false,
+      );
     },
   );
 

@@ -21,6 +21,7 @@ describe('ServiceRequestList', () => {
     id: 42,
     message: 'Bonjour, je souhaite repeindre ma chambre.',
     status: ServiceRequestStatus.SENT,
+    hasReview: false,
     createdAt: '2026-10-12T10:30:00.000Z',
     requesterUserId: 8,
     recipientUserId: 9,
@@ -459,7 +460,7 @@ describe('ServiceRequestList', () => {
       fixture.detectChanges();
       expect(component.reviewingRequestId()).toBeNull();
       expect(cards[1].querySelector('app-review-form')).toBeNull();
-      expect(component.reviewedRequestIds()).toEqual([]);
+      expect(component.serviceRequests().every((request) => !request.hasReview)).toBe(true);
       expect(cards[1].querySelector('.review-success')).toBeNull();
       expect(reviewStoreStub.add).toHaveBeenCalledOnce();
       expect(cards[0].querySelector<HTMLButtonElement>('.request-actions button')!.disabled).toBe(
@@ -467,33 +468,40 @@ describe('ServiceRequestList', () => {
       );
     });
 
-    it('should append the reviewed request id immutably and close the current form without changing the requests', () => {
-      storeStub.getSent.mockReturnValue(of([completed]));
+    it('should mark only the published request as reviewed immutably and close the form', () => {
+      const alreadyReviewed = { ...completed, id: 40, hasReview: true };
+      const originalRequests = [alreadyReviewed, completed, otherRequest];
+      storeStub.getSent.mockReturnValue(of(originalRequests));
       createList('sent');
-      const previousIds = [40];
-      component.reviewedRequestIds.set(previousIds);
       component.reviewingRequestId.set(completed.id);
-      const previousRequests = component.serviceRequests();
 
       component.onReviewCreated(completed.id);
 
-      expect(component.reviewedRequestIds()).toEqual([40, 42]);
-      expect(component.reviewedRequestIds()).not.toBe(previousIds);
-      expect(previousIds).toEqual([40]);
+      expect(component.serviceRequests()).toEqual([
+        alreadyReviewed,
+        { ...completed, hasReview: true },
+        otherRequest,
+      ]);
+      expect(component.serviceRequests()).not.toBe(originalRequests);
+      expect(component.serviceRequests()[1]).not.toBe(completed);
+      expect(component.serviceRequests()[0]).toBe(alreadyReviewed);
+      expect(component.serviceRequests()[2]).toBe(otherRequest);
+      expect(completed.hasReview).toBe(false);
+      expect(originalRequests[1].hasReview).toBe(false);
       expect(component.reviewingRequestId()).toBeNull();
-      expect(component.serviceRequests()).toBe(previousRequests);
       expect(storeStub.updateStatus).not.toHaveBeenCalled();
+      expect(reviewStoreStub.add).not.toHaveBeenCalled();
     });
 
     it('should refuse reopening an already reviewed request even when all other opening conditions pass', () => {
-      storeStub.getSent.mockReturnValue(of([completed]));
+      const reviewed = { ...completed, hasReview: true };
+      storeStub.getSent.mockReturnValue(of([reviewed]));
       createList('sent');
-      component.reviewedRequestIds.set([completed.id]);
 
-      component.onOpenReview(completed);
+      component.onOpenReview(reviewed);
 
       expect(component.reviewingRequestId()).toBeNull();
-      expect(component.reviewedRequestIds()).toEqual([completed.id]);
+      expect(component.serviceRequests()).toEqual([{ ...completed, hasReview: true }]);
     });
 
     it('should confirm only the published request and allow another request for the same provider to be reviewed', () => {
@@ -505,7 +513,7 @@ describe('ServiceRequestList', () => {
         rating: 5,
         comment: 'Prestation soignée.',
       });
-      expect(component.reviewedRequestIds()).toEqual([]);
+      expect(component.serviceRequests().every((request) => !request.hasReview)).toBe(true);
       expect(cards[1].querySelector('.review-success')).toBeNull();
       expect(cards[1].querySelector('app-review-form')).not.toBeNull();
       expect(component.reviewingRequestId()).toBe(42);
@@ -521,7 +529,10 @@ describe('ServiceRequestList', () => {
       response$.complete();
       fixture.detectChanges();
 
-      expect(component.reviewedRequestIds()).toEqual([42]);
+      expect(component.serviceRequests()).toEqual([
+        otherRequest,
+        { ...completed, hasReview: true },
+      ]);
       expect(component.reviewingRequestId()).toBeNull();
       expect(cards[1].querySelector('app-review-form')).toBeNull();
       expect(cards[1].querySelector('button')).toBeNull();
@@ -531,7 +542,9 @@ describe('ServiceRequestList', () => {
       expect(cards[0].querySelector('.review-success')).toBeNull();
       const otherButton = cards[0].querySelector<HTMLButtonElement>('.request-actions button')!;
       expect(otherButton.disabled).toBe(false);
-      expect(component.serviceRequests()).toBe(previousRequests);
+      expect(component.serviceRequests()).not.toBe(previousRequests);
+      expect(component.serviceRequests()[0]).toBe(previousRequests[0]);
+      expect(previousRequests[1].hasReview).toBe(false);
       expect(storeStub.updateStatus).not.toHaveBeenCalled();
 
       otherButton.click();
@@ -554,7 +567,7 @@ describe('ServiceRequestList', () => {
         response$.error(new HttpErrorResponse({ status }));
         fixture.detectChanges();
 
-        expect(component.reviewedRequestIds()).toEqual([]);
+        expect(component.serviceRequests().every((request) => !request.hasReview)).toBe(true);
         expect(component.reviewingRequestId()).toBe(42);
         expect(cards[1].querySelector('.review-success')).toBeNull();
         expect(cards[1].querySelector('app-review-form')).not.toBeNull();
@@ -568,6 +581,56 @@ describe('ServiceRequestList', () => {
         expect(storeStub.updateStatus).not.toHaveBeenCalled();
       },
     );
+  });
+
+  describe('review indicators from the API', () => {
+    it('should show loaded confirmations per request while keeping unreviewed requests to the same provider eligible', () => {
+      const completed = { ...sentRequest, status: ServiceRequestStatus.COMPLETED };
+      const reviewed = { ...completed, hasReview: true, serviceOfferingId: null };
+      const unreviewed = { ...completed, id: 43 };
+      storeStub.getSent.mockReturnValue(of([reviewed, unreviewed]));
+
+      createList('sent');
+
+      const cards = fixture.nativeElement.querySelectorAll(
+        '.service-request',
+      ) as NodeListOf<HTMLElement>;
+      expect(cards[0].querySelector('.review-success')?.textContent).toContain(
+        'Votre avis a été publié',
+      );
+      expect(cards[0].querySelector('button')).toBeNull();
+      expect(cards[0].querySelector('app-review-form')).toBeNull();
+      expect(cards[1].querySelector('.review-success')).toBeNull();
+      const openButton = cards[1].querySelector<HTMLButtonElement>('.request-actions button')!;
+      expect(openButton.disabled).toBe(false);
+      expect(reviewStoreStub.add).not.toHaveBeenCalled();
+
+      openButton.click();
+      fixture.detectChanges();
+
+      expect(component.reviewingRequestId()).toBe(unreviewed.id);
+      expect(cards[1].querySelector('app-review-form')).not.toBeNull();
+      expect(cards[0].querySelector('.review-success')).not.toBeNull();
+    });
+
+    it('should preserve hasReview in received requests without showing the requester review controls or confirmation', () => {
+      const reviewed = {
+        ...receivedRequests[0],
+        status: ServiceRequestStatus.COMPLETED,
+        hasReview: true,
+      };
+      storeStub.getReceived.mockReturnValue(of([reviewed]));
+
+      createList('received');
+
+      expect(component.serviceRequests()).toEqual([reviewed]);
+      expect(fixture.nativeElement.querySelector('.review-success')).toBeNull();
+      expect(fixture.nativeElement.querySelector('app-review-form')).toBeNull();
+      expect(fixture.nativeElement.textContent).not.toContain('Donner mon avis');
+      component.onOpenReview(reviewed);
+      expect(component.reviewingRequestId()).toBeNull();
+      expect(reviewStoreStub.add).not.toHaveBeenCalled();
+    });
   });
 
   describe('review opening interactions', () => {
@@ -610,7 +673,6 @@ describe('ServiceRequestList', () => {
       const another = { ...completed, id: 43 };
       storeStub.getSent.mockReturnValue(of([another, completed]));
       createList('sent');
-      component.reviewedRequestIds.set([40]);
       const requestsBefore = component.serviceRequests();
       const cards = element().querySelectorAll('.service-request');
       const openButton = cards[1].querySelector<HTMLButtonElement>('.request-actions button')!;
@@ -631,7 +693,7 @@ describe('ServiceRequestList', () => {
 
       expect(element().querySelector('app-review-form')).toBeNull();
       expect(component.reviewingRequestId()).toBeNull();
-      expect(component.reviewedRequestIds()).toEqual([40]);
+      expect(component.serviceRequests().every((request) => !request.hasReview)).toBe(true);
       expect(component.serviceRequests()).toBe(requestsBefore);
       expect(element().querySelector('.review-success')).toBeNull();
       for (const card of cards) {

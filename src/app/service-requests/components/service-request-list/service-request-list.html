@@ -135,7 +135,7 @@
         isSentMode &&
         serviceRequest.status === serviceRequestStatus.COMPLETED
       ) {
-        @if (reviewedRequestIds().includes(serviceRequest.id)) {
+        @if (serviceRequest.hasReview) {
           <p role="status" class="review-success">Votre avis a été publié</p>
         } @else {
           <div class="request-actions">

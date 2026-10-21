@@ -28,6 +28,7 @@ describe('ServiceRequestForm', () => {
     id: 42,
     message,
     status: ServiceRequestStatus.SENT,
+    hasReview: false,
     createdAt: '2026-10-12T10:30:00.000Z',
     requesterUserId: 8,
     recipientUserId: 9,

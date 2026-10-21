@@ -195,6 +195,7 @@ describe('App routes', () => {
       id: 42,
       message: 'Bonjour, je souhaite un conseil.',
       status: ServiceRequestStatus.SENT,
+      hasReview: false,
       createdAt: '2026-10-12T10:30:00.000Z',
       requesterUserId: 8,
       recipientUserId: 9,
@@ -252,6 +253,40 @@ describe('App routes', () => {
         expect(component.loadError()).toBeNull();
       },
     );
+
+    it('should restore the published review confirmation from a fresh API response when returning to sent requests', async () => {
+      authSessionStub.isAuthenticated.set(true);
+      const reviewed: ServiceRequest = {
+        ...sentRequest,
+        status: ServiceRequestStatus.COMPLETED,
+        hasReview: true,
+        serviceProviderId: 7,
+      };
+      const first = await harness.navigateByUrl('/service-requests/sent', ServiceRequestList);
+      httpTesting.expectOne('http://localhost:3000/service-requests/sent').flush([reviewed]);
+      harness.detectChanges();
+      expect(harness.routeNativeElement?.querySelector('.review-success')?.textContent).toContain(
+        'Votre avis a été publié',
+      );
+      expect(harness.routeNativeElement?.querySelector('app-review-form')).toBeNull();
+
+      await harness.navigateByUrl('/service-requests/received', ServiceRequestList);
+      httpTesting.expectOne('http://localhost:3000/service-requests/received').flush([]);
+      const second = await harness.navigateByUrl('/service-requests/sent', ServiceRequestList);
+      expect(second).not.toBe(first);
+      expect(second.isLoading()).toBe(true);
+      expect(second.serviceRequests()).toEqual([]);
+      httpTesting.expectOne('http://localhost:3000/service-requests/sent').flush([{ ...reviewed }]);
+      harness.detectChanges();
+
+      expect(second.serviceRequests()[0].hasReview).toBe(true);
+      expect(harness.routeNativeElement?.querySelector('.review-success')?.textContent).toContain(
+        'Votre avis a été publié',
+      );
+      expect(harness.routeNativeElement?.textContent).not.toContain('Donner mon avis');
+      expect(harness.routeNativeElement?.querySelector('app-review-form')).toBeNull();
+      httpTesting.expectNone((request) => request.method === 'POST');
+    });
 
     it('should switch from sent to received requests using the new route data', async () => {
       authSessionStub.isAuthenticated.set(true);

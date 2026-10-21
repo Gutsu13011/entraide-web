@@ -13,11 +13,12 @@ service.
 ## Current features
 
 - Responsive layouts for the provider list, detail page and provider form.
+- Active navigation links for the provider list, private requests, login and registration, with a light green background and `aria-current="page"`
 - Paginated service provider list
 - Search, city and availability filters, sorting and pagination
 - Service provider detail pages
 - Review summaries and review lists on provider detail pages
-- Inline review creation from completed sent requests, with validation, pending and error states and local publication confirmation
+- Inline review creation from completed sent requests, with validation, pending and error states and publication confirmation restored from the API
 - Multiple service offerings per provider, with independent free or hourly pricing on detail pages
 - Service offering creation and editing through a shared validated reactive form
 - Service provider creation and editing through a shared validated reactive form
@@ -60,8 +61,8 @@ the page is reloaded.
 Service request creation and private sent and received request pages are
 implemented. Recipients can mark requests as read, accept or reject them,
 and mark accepted requests as completed. Requesters can publish reviews from
-completed sent requests. Publication confirmation is currently kept in memory
-for the lifetime of the request list page. Reply messages are planned.
+completed sent requests. Publication confirmation is restored from the API
+when the request list is reopened. Reply messages are planned.
 The current version is intended for local development and demonstration.
 
 ## Requirements
@@ -275,7 +276,8 @@ Reply messages are not implemented yet.
 ## Reviews from completed requests
 
 In "Demandes envoyées", a completed request with a non-null `serviceProviderId`
-shows "Donner mon avis". Received requests and requests whose provider was
+and `hasReview: false` shows "Donner mon avis". A reviewed request instead
+shows "Votre avis a été publié". Received requests and requests whose provider was
 deleted do not show this action. Deleting only the offering preserves the
 provider link, so the request can still be reviewed.
 
@@ -302,12 +304,17 @@ completed requests, including requests to the same provider, remain eligible.
 An error keeps the form and entered values, shows a generic error message and
 re-enables submission. The associated request status and snapshots are unchanged.
 
-The list tracks reviewed request identifiers in memory. Returning to the list
-resets this local confirmation, so an already reviewed request may show the
-action again; the API still rejects a duplicate with `409 Conflict`. Restoring
-review indicators from the private API responses is planned. Public review
-lists and summaries are fetched when opening the provider detail page; this
-submission flow does not update other open pages in real time.
+Private request responses include the required boolean `hasReview`. The list
+uses that value for both the confirmation and the review opening guard. After
+a successful publication, it replaces only the matching request with a copy
+containing `hasReview: true`, then closes the form. Failed publication and
+cancellation leave the requests unchanged. Reopening the list fetches the flag
+again from the API, restoring confirmation without a separate local identifier
+list. Other requests to the same provider retain their own flag. The API still
+rejects duplicate reviews with `409 Conflict`. Received lists do not display
+the requester-specific review action or confirmation. Public review lists and
+summaries are fetched when opening the provider detail page; this submission
+flow does not update other open pages in real time.
 
 ## Quality checks
 
@@ -339,4 +346,3 @@ creates a production build.
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
 - Service request reply messages
-- Persistent review indicators when returning to sent requests

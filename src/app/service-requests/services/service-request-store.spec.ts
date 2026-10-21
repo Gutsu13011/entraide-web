@@ -21,6 +21,7 @@ describe('ServiceRequestStore', () => {
     id: 42,
     message: creationBody.message,
     status: ServiceRequestStatus.SENT,
+    hasReview: false,
     createdAt: '2026-10-12T09:30:00.000Z',
     requesterUserId: 8,
     recipientUserId: 9,
@@ -86,9 +87,20 @@ describe('ServiceRequestStore', () => {
     { method: 'getSent' as const, path: 'sent' },
     { method: 'getReceived' as const, path: 'received' },
   ])(
-    'should fetch $path requests and preserve participants, snapshots and nullable fields',
+    'should fetch $path requests and preserve review indicators, participants, snapshots and nullable fields',
     ({ method, path }) => {
-      const response = [hourlyRequest, deletedOfferingRequest, deletedProviderRequest];
+      const reviewedRequest: ServiceRequest = {
+        ...hourlyRequest,
+        id: 45,
+        status: ServiceRequestStatus.COMPLETED,
+        hasReview: true,
+      };
+      const response = [
+        hourlyRequest,
+        reviewedRequest,
+        deletedOfferingRequest,
+        deletedProviderRequest,
+      ];
       const nextSpy = vi.fn();
 
       service[method]().subscribe(nextSpy);

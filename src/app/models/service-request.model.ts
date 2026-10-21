@@ -4,6 +4,7 @@ export interface ServiceRequest {
   id: number;
   message: string;
   status: ServiceRequestStatus;
+  hasReview: boolean;
   createdAt: string;
   requesterUserId: number;
   recipientUserId: number;

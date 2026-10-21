@@ -80,6 +80,13 @@ header nav a:hover {
   text-decoration: underline;
 }
 
+header nav .nav-link-active {
+  border-color: var(--color-primary);
+  background-color: #e6f4ef;
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
 header nav .account-actions {
   display: flex;
   align-items: center;

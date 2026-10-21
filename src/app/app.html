@@ -2,16 +2,39 @@
   <h1>Entraide</h1>
   <p>Ici vous trouvez toute l'aide dont vous avez besoin pour vos petits travaux.</p>
   <nav aria-label="Navigation principale">
-    <a [routerLink]="['/']">Prestataires</a>
+    <a
+      [routerLink]="['/']"
+      routerLinkActive="nav-link-active"
+      ariaCurrentWhenActive="page"
+      [routerLinkActiveOptions]="{ exact: true }"
+      >Prestataires</a
+    >
     <div class="account-actions">
       @if (authSession.currentUser(); as user) {
         <p class="session-user">{{ user.firstName }} {{ user.lastName }}</p>
-        <a [routerLink]="['/service-requests', 'sent']">Demandes envoyées</a>
-        <a [routerLink]="['/service-requests', 'received']">Demandes reçues</a>
+        <a
+          [routerLink]="['/service-requests', 'sent']"
+          routerLinkActive="nav-link-active"
+          ariaCurrentWhenActive="page"
+          >Demandes envoyées</a
+        >
+        <a
+          [routerLink]="['/service-requests', 'received']"
+          routerLinkActive="nav-link-active"
+          ariaCurrentWhenActive="page"
+          >Demandes reçues</a
+        >
         <button type="button" (click)="onLogout()">Se déconnecter</button>
       } @else {
-        <a [routerLink]="['/login']">Se connecter</a>
-        <a [routerLink]="['/register']">Créer un compte</a>
+        <a [routerLink]="['/login']" routerLinkActive="nav-link-active" ariaCurrentWhenActive="page"
+          >Se connecter</a
+        >
+        <a
+          [routerLink]="['/register']"
+          routerLinkActive="nav-link-active"
+          ariaCurrentWhenActive="page"
+          >Créer un compte</a
+        >
       }
     </div>
   </nav>

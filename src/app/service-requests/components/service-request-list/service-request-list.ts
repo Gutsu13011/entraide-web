@@ -30,7 +30,6 @@ export class ServiceRequestList implements OnInit {
   readonly updatingRequestId = signal<number | null>(null);
   readonly statusUpdateError = signal<string | null>(null);
   readonly reviewingRequestId = signal<number | null>(null);
-  readonly reviewedRequestIds = signal<number[]>([]);
 
   ngOnInit(): void {
     this.isLoading.set(true);
@@ -56,7 +55,7 @@ export class ServiceRequestList implements OnInit {
       this.reviewingRequestId() !== null ||
       serviceRequest.status !== ServiceRequestStatus.COMPLETED ||
       serviceRequest.serviceProviderId === null ||
-      this.reviewedRequestIds().includes(serviceRequest.id)
+      serviceRequest.hasReview
     ) {
       return;
     }
@@ -65,10 +64,13 @@ export class ServiceRequestList implements OnInit {
   }
 
   onReviewCreated(serviceRequestId: number): void {
-    this.reviewedRequestIds.update((reviewedRequestIds) => [
-      ...reviewedRequestIds,
-      serviceRequestId,
-    ]);
+    this.serviceRequests.update((serviceRequests) =>
+      serviceRequests.map((serviceRequest) =>
+        serviceRequest.id === serviceRequestId
+          ? { ...serviceRequest, hasReview: true }
+          : serviceRequest,
+      ),
+    );
     this.reviewingRequestId.set(null);
   }
 
