@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
-import { of, Subject } from 'rxjs';
+import { finalize, of, Subject } from 'rxjs';
 import { ServiceRequestList } from './service-request-list';
 import { ServiceRequestStore } from '../../services/service-request-store';
 import { ServiceRequest, ServiceRequestStatus } from '../../../models/service-request.model';
@@ -10,13 +10,22 @@ import { ReviewForm } from '../../../reviews/components/review-form/review-form'
 import { ReviewStore } from '../../../reviews/services/review-store';
 import { By } from '@angular/platform-browser';
 import type { Review } from '../../../models/review.model';
+import { ServiceRequestConversation } from '../service-request-conversation/service-request-conversation';
+import type { ServiceRequestMessage } from '../../../models/service-request-message.model';
+import { AuthSession } from '../../../auth/services/auth-session';
 
 describe('ServiceRequestList', () => {
   let component: ServiceRequestList;
   let fixture: ComponentFixture<ServiceRequestList>;
   const routeStub = { snapshot: { data: { direction: 'sent' } } };
-  const storeStub = { getSent: vi.fn(), getReceived: vi.fn(), updateStatus: vi.fn() };
+  const storeStub = {
+    getSent: vi.fn(),
+    getReceived: vi.fn(),
+    updateStatus: vi.fn(),
+    getMessages: vi.fn(),
+  };
   const reviewStoreStub = { add: vi.fn() };
+  const authSessionStub = { currentUser: vi.fn() };
   const sentRequest: ServiceRequest = {
     id: 42,
     message: 'Bonjour, je souhaite repeindre ma chambre.',
@@ -80,7 +89,9 @@ describe('ServiceRequestList', () => {
 
   beforeEach(async () => {
     reviewStoreStub.add.mockReset();
+    authSessionStub.currentUser.mockReset().mockReturnValue(null);
     storeStub.updateStatus.mockReset();
+    storeStub.getMessages.mockReset().mockReturnValue(of([]));
     storeStub.getSent.mockReset().mockReturnValue(of(sentRequests));
     storeStub.getReceived.mockReset().mockReturnValue(of(receivedRequests));
     await TestBed.configureTestingModule({
@@ -89,6 +100,7 @@ describe('ServiceRequestList', () => {
         { provide: ActivatedRoute, useValue: routeStub },
         { provide: ServiceRequestStore, useValue: storeStub },
         { provide: ReviewStore, useValue: reviewStoreStub },
+        { provide: AuthSession, useValue: authSessionStub },
       ],
     }).compileComponents();
   });
@@ -535,7 +547,7 @@ describe('ServiceRequestList', () => {
       ]);
       expect(component.reviewingRequestId()).toBeNull();
       expect(cards[1].querySelector('app-review-form')).toBeNull();
-      expect(cards[1].querySelector('button')).toBeNull();
+      expect(cards[1].querySelector('button:not([aria-expanded])')).toBeNull();
       const confirmation = cards[1].querySelector('.review-success');
       expect(confirmation?.getAttribute('role')).toBe('status');
       expect(confirmation?.textContent).toContain('Votre avis a été publié');
@@ -598,7 +610,7 @@ describe('ServiceRequestList', () => {
       expect(cards[0].querySelector('.review-success')?.textContent).toContain(
         'Votre avis a été publié',
       );
-      expect(cards[0].querySelector('button')).toBeNull();
+      expect(cards[0].querySelector('button:not([aria-expanded])')).toBeNull();
       expect(cards[0].querySelector('app-review-form')).toBeNull();
       expect(cards[1].querySelector('.review-success')).toBeNull();
       const openButton = cards[1].querySelector<HTMLButtonElement>('.request-actions button')!;
@@ -996,7 +1008,9 @@ describe('ServiceRequestList', () => {
     }
 
     function buttons(card: Element): HTMLButtonElement[] {
-      return Array.from(card.querySelectorAll<HTMLButtonElement>('.request-actions button'));
+      return Array.from(
+        card.querySelectorAll<HTMLButtonElement>('.request-actions button:not([aria-expanded])'),
+      );
     }
 
     function button(label: string, card: Element = element()): HTMLButtonElement {
@@ -1285,6 +1299,203 @@ describe('ServiceRequestList', () => {
       );
       expect(buttons(element())).toHaveLength(0);
       expect(element().querySelector('[role="alert"]')).toBeNull();
+    });
+  });
+
+  describe('conversation opening interactions', () => {
+    it('should unsubscribe the old loading conversation when switching and preserve the new discussion after a late response', () => {
+      const oldResponse$ = new Subject<ServiceRequestMessage[]>();
+      const newResponse$ = new Subject<ServiceRequestMessage[]>();
+      const teardown = vi.fn();
+      storeStub.getMessages
+        .mockReturnValueOnce(oldResponse$.pipe(finalize(teardown)))
+        .mockReturnValueOnce(newResponse$);
+      createList('sent');
+      toggle(cards()[0]).click();
+      fixture.detectChanges();
+      expect(teardown).not.toHaveBeenCalled();
+
+      toggle(cards()[1]).click();
+      fixture.detectChanges();
+
+      expect(teardown).toHaveBeenCalledTimes(1);
+      expect(storeStub.getMessages).toHaveBeenNthCalledWith(2, sentRequests[1].id);
+      newResponse$.next([savedMessage]);
+      newResponse$.complete();
+      fixture.detectChanges();
+      oldResponse$.next([
+        {
+          ...savedMessage,
+          serviceRequestId: sentRequests[0].id,
+          content: 'Ancienne réponse à ignorer',
+        },
+      ]);
+      oldResponse$.complete();
+      fixture.detectChanges();
+      expect(cards()[0].querySelector('app-service-request-conversation')).toBeNull();
+      expect(cards()[1].textContent).toContain(savedMessage.content);
+      expect(cards()[1].textContent).not.toContain('Ancienne réponse à ignorer');
+      const child = fixture.debugElement.query(By.directive(ServiceRequestConversation))
+        .componentInstance as ServiceRequestConversation;
+      expect(child.messages()).toEqual([savedMessage]);
+      expect(child.isLoading()).toBe(false);
+    });
+
+    const savedMessage: ServiceRequestMessage = {
+      id: 101,
+      content: 'Bonjour, samedi à 10 heures me convient.',
+      createdAt: '2026-10-22T09:30:00.000Z',
+      readAt: null,
+      serviceRequestId: 42,
+      authorUserId: 8,
+      author: sentRequest.requester,
+    };
+
+    function cards(): HTMLElement[] {
+      return Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('.service-request'),
+      );
+    }
+
+    function toggle(card: HTMLElement): HTMLButtonElement {
+      return card.querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+    }
+
+    it.each(modes)(
+      'should load only the clicked $direction conversation when its disclosure button is opened',
+      ({ direction, requests }) => {
+        createList(direction);
+        const initialRequests = component.serviceRequests();
+        expect(component.openedConversationId()).toBeNull();
+        expect(storeStub.getMessages).not.toHaveBeenCalled();
+        expect(fixture.debugElement.query(By.directive(ServiceRequestConversation))).toBeNull();
+        for (const card of cards()) {
+          expect(toggle(card).type).toBe('button');
+          expect(toggle(card).getAttribute('aria-expanded')).toBe('false');
+          expect(toggle(card).textContent).toContain('Voir la discussion');
+        }
+
+        toggle(cards()[0]).click();
+        fixture.detectChanges();
+
+        expect(component.openedConversationId()).toBe(requests[0].id);
+        expect(storeStub.getMessages).toHaveBeenCalledExactlyOnceWith(requests[0].id);
+        expect(toggle(cards()[0]).getAttribute('aria-expanded')).toBe('true');
+        expect(toggle(cards()[0]).textContent).toContain('Fermer la discussion');
+        const children = fixture.debugElement.queryAll(By.directive(ServiceRequestConversation));
+        expect(children).toHaveLength(1);
+        expect(children[0].componentInstance.serviceRequestId()).toBe(requests[0].id);
+        expect(cards()[0].querySelector('app-service-request-conversation')).not.toBeNull();
+        for (const card of cards().slice(1)) {
+          expect(card.querySelector('app-service-request-conversation')).toBeNull();
+          expect(toggle(card).getAttribute('aria-expanded')).toBe('false');
+        }
+        expect(component.serviceRequests()).toBe(initialRequests);
+        expect(storeStub.updateStatus).not.toHaveBeenCalled();
+        expect(reviewStoreStub.add).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should destroy a closed conversation and reload fresh messages when it is reopened', () => {
+      const updatedMessage = { ...savedMessage, id: 102, content: 'Voici une nouvelle réponse.' };
+      storeStub.getSent.mockReturnValue(of([sentRequest]));
+      storeStub.getMessages
+        .mockReturnValueOnce(of([savedMessage]))
+        .mockReturnValueOnce(of([updatedMessage]));
+      createList('sent');
+      const button = toggle(cards()[0]);
+      button.click();
+      fixture.detectChanges();
+      const originalChild = fixture.debugElement.query(
+        By.directive(ServiceRequestConversation),
+      ).componentInstance;
+      expect(cards()[0].textContent).toContain(savedMessage.content);
+
+      button.click();
+      fixture.detectChanges();
+
+      expect(component.openedConversationId()).toBeNull();
+      expect(fixture.debugElement.query(By.directive(ServiceRequestConversation))).toBeNull();
+      expect(button.getAttribute('aria-expanded')).toBe('false');
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+      button.click();
+      fixture.detectChanges();
+      const reopenedChild = fixture.debugElement.query(
+        By.directive(ServiceRequestConversation),
+      ).componentInstance;
+      expect(reopenedChild).not.toBe(originalChild);
+      expect(storeStub.getMessages).toHaveBeenNthCalledWith(2, sentRequest.id);
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(cards()[0].textContent).toContain(updatedMessage.content);
+      expect(cards()[0].textContent).not.toContain(savedMessage.content);
+    });
+
+    it('should replace the open conversation when another request to the same provider is selected', () => {
+      createList('sent');
+      toggle(cards()[0]).click();
+      fixture.detectChanges();
+      const originalChild = fixture.debugElement.query(
+        By.directive(ServiceRequestConversation),
+      ).componentInstance;
+
+      toggle(cards()[1]).click();
+      fixture.detectChanges();
+
+      expect(component.openedConversationId()).toBe(sentRequests[1].id);
+      expect(storeStub.getMessages).toHaveBeenNthCalledWith(1, sentRequests[0].id);
+      expect(storeStub.getMessages).toHaveBeenNthCalledWith(2, sentRequests[1].id);
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(cards()[0].querySelector('app-service-request-conversation')).toBeNull();
+      expect(toggle(cards()[0]).getAttribute('aria-expanded')).toBe('false');
+      expect(toggle(cards()[1]).getAttribute('aria-expanded')).toBe('true');
+      const children = fixture.debugElement.queryAll(By.directive(ServiceRequestConversation));
+      expect(children).toHaveLength(1);
+      expect(children[0].componentInstance).not.toBe(originalChild);
+      expect(children[0].componentInstance.serviceRequestId()).toBe(sentRequests[1].id);
+    });
+
+    it('should keep a completed conversation accessible after provider and offering deletion', () => {
+      const historical = {
+        ...receivedRequests[0],
+        status: ServiceRequestStatus.COMPLETED,
+        serviceOfferingId: null,
+        serviceProviderId: null,
+      };
+      storeStub.getReceived.mockReturnValue(of([historical]));
+      createList('received');
+
+      toggle(cards()[0]).click();
+      fixture.detectChanges();
+
+      expect(storeStub.getMessages).toHaveBeenCalledExactlyOnceWith(historical.id);
+      expect(cards()[0].querySelector('app-service-request-conversation')).not.toBeNull();
+      expect(component.serviceRequests()).toEqual([historical]);
+      expect(storeStub.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('should allow closing a failed conversation and retry loading it by reopening', () => {
+      const firstResponse$ = new Subject<ServiceRequestMessage[]>();
+      storeStub.getSent.mockReturnValue(of([sentRequest]));
+      storeStub.getMessages
+        .mockReturnValueOnce(firstResponse$)
+        .mockReturnValueOnce(of([savedMessage]));
+      createList('sent');
+      const button = toggle(cards()[0]);
+      button.click();
+      fixture.detectChanges();
+      firstResponse$.error(new HttpErrorResponse({ status: 500 }));
+      fixture.detectChanges();
+      expect(cards()[0].querySelector('[role="alert"]')).not.toBeNull();
+
+      button.click();
+      fixture.detectChanges();
+      button.click();
+      fixture.detectChanges();
+
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(cards()[0].querySelector('[role="alert"]')).toBeNull();
+      expect(cards()[0].textContent).toContain(savedMessage.content);
+      expect(component.loadError()).toBeNull();
     });
   });
 });

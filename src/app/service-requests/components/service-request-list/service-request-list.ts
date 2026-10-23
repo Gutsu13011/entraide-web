@@ -10,9 +10,10 @@ import { finalize } from 'rxjs';
 import { DatePipe } from '@angular/common';
 import { ServicePricingType } from '../../../models/service-offering.model';
 import { ReviewForm } from '../../../reviews/components/review-form/review-form';
+import { ServiceRequestConversation } from '../service-request-conversation/service-request-conversation';
 
 @Component({
-  imports: [DatePipe, ReviewForm],
+  imports: [DatePipe, ReviewForm, ServiceRequestConversation],
   selector: 'app-service-request-list',
   styleUrl: './service-request-list.scss',
   templateUrl: './service-request-list.html',
@@ -30,6 +31,7 @@ export class ServiceRequestList implements OnInit {
   readonly updatingRequestId = signal<number | null>(null);
   readonly statusUpdateError = signal<string | null>(null);
   readonly reviewingRequestId = signal<number | null>(null);
+  readonly openedConversationId = signal<number | null>(null);
 
   ngOnInit(): void {
     this.isLoading.set(true);
@@ -47,6 +49,12 @@ export class ServiceRequestList implements OnInit {
         this.loadError.set('Impossible de charger vos demandes. Veuillez réessayer.');
       },
     });
+  }
+
+  onToggleConversation(serviceRequestId: number): void {
+    const isAlreadyOpen = this.openedConversationId() === serviceRequestId;
+
+    this.openedConversationId.set(isAlreadyOpen ? null : serviceRequestId);
   }
 
   onOpenReview(serviceRequest: ServiceRequest): void {

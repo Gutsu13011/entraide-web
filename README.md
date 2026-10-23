@@ -35,6 +35,7 @@ service.
 - Private sent and received request pages through a shared list component
 - Recipient actions to mark requests as read, accept or reject them, and complete accepted requests, with pending and error states
 - Request participants, messages, historical offering titles and pricing, status and dates displayed in cards
+- Inline conversations on sent and received request cards, with reply submission and read receipts
 - Signed-in account links to request lists in the header
 - Manual logout opens login and closes the current page, including private request lists
 - HTTP integration with the NestJS backend
@@ -62,7 +63,8 @@ Service request creation and private sent and received request pages are
 implemented. Recipients can mark requests as read, accept or reject them,
 and mark accepted requests as completed. Requesters can publish reviews from
 completed sent requests. Publication confirmation is restored from the API
-when the request list is reopened. Reply messages are planned.
+when the request list is reopened. Both participants can open a conversation,
+send replies and mark received messages as read after displaying the history.
 The current version is intended for local development and demonstration.
 
 ## Requirements
@@ -271,7 +273,47 @@ changing the card; a failed attempt keeps the accepted state and allows retry.
 The API independently requires the recorded recipient and an accepted request.
 Completion currently records only the status, without a completion timestamp.
 
-Reply messages are not implemented yet.
+### Request conversations
+
+Each sent or received request card offers "Voir la discussion". Opening it
+loads replies from `GET /service-requests/:id/messages`. Only one discussion
+is open in a list at a time. "Fermer la discussion" removes its component;
+opening it again fetches fresh history. The initial request text remains
+separate from the replies. Conversations remain available after offering or
+provider deletion, including on completed requests.
+
+Replies display their author's name, creation date and content, preserving
+line breaks and separating messages with a light border. A green check labelled
+"Message lu" appears when the returned message has a non-null `readAt`.
+Loading, empty history and loading failures have separate views. Loading
+failures hide the reply form.
+
+The reply form accepts non-blank text up to 2,000 characters and posts only
+`content` to `POST /service-requests/:id/messages`. The API derives the author
+from the authenticated account. The field becomes read-only and the send
+button is disabled while sending. Success appends the saved message and
+resets the draft; failure preserves the draft and history and allows retry.
+
+After Angular renders the loaded history, the component checks for unread
+messages written by the other participant. If any exist, it sends the highest
+identifier in that loaded history as `upToMessageId` to
+`PATCH /service-requests/:id/messages/read`. The API marks only received,
+previously unread messages up to that boundary. This does not change the
+request's status. Empty histories, own messages alone and already-read
+received messages do not trigger an update. Read-update failures display a
+separate alert while preserving the discussion and reply form.
+
+Closing the discussion cancels pending subscriptions and any scheduled
+post-render callback. Late responses cannot update a closed component or
+trigger a read update after closure. Cancelling a send on the client does not
+undo a message the API may already have saved. Closing also discards the local
+draft.
+
+History and read dates are fetched when opening the discussion; there is no
+polling or real-time synchronization. The read PATCH returns no content and
+does not replace locally loaded read dates, so reopening fetches the latest
+server values. In-app unread counters, real-time notifications and delayed
+email reminders are planned.
 
 ## Reviews from completed requests
 
@@ -345,4 +387,6 @@ creates a production build.
 - A session expiry notification and return to login
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
-- Service request reply messages
+- Unread-message counters
+- Real-time message notifications
+- Delayed email reminders for unread messages

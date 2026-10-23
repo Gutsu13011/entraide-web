@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import type { Observable } from 'rxjs';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ServiceRequestStore } from './service-request-store';
 import {
@@ -8,6 +9,7 @@ import {
   UpdateServiceRequestStatus,
 } from '../../models/service-request.model';
 import { ServicePricingType } from '../../models/service-offering.model';
+import { ServiceRequestMessage } from '../../models/service-request-message.model';
 
 describe('ServiceRequestStore', () => {
   let service: ServiceRequestStore;
@@ -266,6 +268,175 @@ describe('ServiceRequestStore', () => {
         });
 
         const pending = httpTesting.expectOne(updateUrl);
+        pending.flush(errorBody, { status, statusText });
+
+        expect(nextSpy).not.toHaveBeenCalled();
+        expect(completeSpy).not.toHaveBeenCalled();
+        expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ status, error: errorBody }),
+        );
+      },
+    );
+  });
+
+  describe('conversation messages', () => {
+    const messagesUrl = 'http://localhost:3000/service-requests/42/messages';
+    const message: ServiceRequestMessage = {
+      id: 101,
+      content: 'Bonjour, serais-tu disponible samedi matin ?',
+      createdAt: '2026-10-22T09:30:00.000Z',
+      readAt: null,
+      serviceRequestId: 42,
+      authorUserId: 8,
+      author: { id: 8, firstName: 'Alice', lastName: 'Martin' },
+    };
+
+    it('should fetch conversation messages and preserve authors, date strings and read receipts', () => {
+      const response: ServiceRequestMessage[] = [
+        message,
+        {
+          ...message,
+          id: 102,
+          content: 'Oui, à partir de 10 heures.',
+          createdAt: '2026-10-22T09:35:00.000Z',
+          readAt: '2026-10-22T09:36:00.000Z',
+          authorUserId: 9,
+          author: { id: 9, firstName: 'Bruno', lastName: 'Leroy' },
+        },
+      ];
+      const nextSpy = vi.fn();
+
+      service.getMessages(42).subscribe(nextSpy);
+
+      const pending = httpTesting.expectOne(messagesUrl);
+      expect(pending.request.method).toBe('GET');
+      expect(pending.request.body).toBeNull();
+      expect(pending.request.params.keys()).toEqual([]);
+      expect(nextSpy).not.toHaveBeenCalled();
+      pending.flush(response);
+
+      expect(nextSpy).toHaveBeenCalledExactlyOnceWith(response);
+    });
+
+    it('should return an empty array when the conversation has no replies', () => {
+      const nextSpy = vi.fn();
+
+      service.getMessages(42).subscribe(nextSpy);
+      httpTesting.expectOne(messagesUrl).flush([]);
+
+      expect(nextSpy).toHaveBeenCalledExactlyOnceWith([]);
+    });
+
+    it('should post only the message content and return the saved message after the response', () => {
+      const nextSpy = vi.fn();
+      const completeSpy = vi.fn();
+      const errorSpy = vi.fn();
+      const content = 'Bonjour, samedi à 10 heures ?\nMerci !';
+      const response = { ...message, content };
+
+      service.sendMessage(42, { content }).subscribe({
+        next: nextSpy,
+        complete: completeSpy,
+        error: errorSpy,
+      });
+
+      const pending = httpTesting.expectOne(messagesUrl);
+      expect(pending.request.method).toBe('POST');
+      expect(pending.request.body).toEqual({ content });
+      expect(nextSpy).not.toHaveBeenCalled();
+      expect(completeSpy).not.toHaveBeenCalled();
+      pending.flush(response, { status: 201, statusText: 'Created' });
+
+      expect(nextSpy).toHaveBeenCalledExactlyOnceWith(response);
+      expect(completeSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it('should patch only the displayed message boundary and complete after a 204 response', () => {
+      const nextSpy = vi.fn();
+      const completeSpy = vi.fn();
+      const errorSpy = vi.fn();
+
+      service.markMessagesAsRead(42, { upToMessageId: 102 }).subscribe({
+        next: nextSpy,
+        complete: completeSpy,
+        error: errorSpy,
+      });
+
+      const pending = httpTesting.expectOne(`${messagesUrl}/read`);
+      expect(pending.request.method).toBe('PATCH');
+      expect(pending.request.body).toEqual({ upToMessageId: 102 });
+      expect(nextSpy).not.toHaveBeenCalled();
+      expect(completeSpy).not.toHaveBeenCalled();
+      pending.flush(null, { status: 204, statusText: 'No Content' });
+
+      expect(nextSpy).toHaveBeenCalledTimes(1);
+      expect(completeSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    const operations: {
+      method: string;
+      path: string;
+      call: () => Observable<unknown>;
+    }[] = [
+      { method: 'GET', path: messagesUrl, call: () => service.getMessages(42) },
+      {
+        method: 'POST',
+        path: messagesUrl,
+        call: () => service.sendMessage(42, { content: message.content }),
+      },
+      {
+        method: 'PATCH',
+        path: `${messagesUrl}/read`,
+        call: () => service.markMessagesAsRead(42, { upToMessageId: 102 }),
+      },
+    ];
+    const accessFailures = [
+      { status: 401, statusText: 'Unauthorized', message: 'Unauthorized' },
+      {
+        status: 403,
+        statusText: 'Forbidden',
+        message: 'Only request participants can access this conversation',
+      },
+      { status: 404, statusText: 'Not Found', message: 'Service request not found' },
+    ];
+    const failureCases = [
+      ...operations.flatMap((operation) =>
+        accessFailures.map((failure) => ({ ...operation, ...failure })),
+      ),
+      {
+        ...operations[0],
+        status: 500,
+        statusText: 'Internal Server Error',
+        message: 'Internal server error',
+      },
+      {
+        ...operations[1],
+        status: 400,
+        statusText: 'Bad Request',
+        message: 'Invalid message content',
+      },
+      {
+        ...operations[2],
+        status: 400,
+        statusText: 'Bad Request',
+        message: 'Invalid message boundary',
+      },
+    ];
+
+    it.each(failureCases)(
+      'should propagate a $method conversation failure with status $status without emitting success',
+      ({ method, path, call, status, statusText, message: errorMessage }) => {
+        const nextSpy = vi.fn();
+        const completeSpy = vi.fn();
+        const errorSpy = vi.fn();
+        const errorBody = { message: errorMessage };
+
+        call().subscribe({ next: nextSpy, complete: completeSpy, error: errorSpy });
+
+        const pending = httpTesting.expectOne(path);
+        expect(pending.request.method).toBe(method);
         pending.flush(errorBody, { status, statusText });
 
         expect(nextSpy).not.toHaveBeenCalled();

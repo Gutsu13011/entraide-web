@@ -1,0 +1,62 @@
+<section class="conversation" aria-label="Discussion de la demande">
+  <h4>Discussion</h4>
+
+  @if (isLoading()) {
+    <p role="status">Chargement de la conversation...</p>
+  } @else if (loadError(); as message) {
+    <p class="error-message" role="alert">{{ message }}</p>
+  } @else {
+    <div class="conversation-messages">
+      @if (readError(); as error) {
+        <p class="error-message" role="alert">{{ error }}</p>
+      }
+      @for (message of messages(); track message.id) {
+        <article class="conversation-message">
+          <header class="conversation-message-header">
+            <strong> {{ message.author.firstName }} {{ message.author.lastName }} </strong>
+
+            <time [attr.datetime]="message.createdAt">
+              {{ message.createdAt | date: 'dd/MM/yyyy à HH:mm' }}
+              @if (message.readAt) {
+                <span
+                  class="message-read-check"
+                  role="img"
+                  aria-label="Message lu"
+                  title="Message lu"
+                  >✓</span
+                >
+              }
+            </time>
+          </header>
+
+          <p class="conversation-message-content">
+            {{ message.content }}
+          </p>
+        </article>
+      } @empty {
+        <p>Aucun message dans cette discussion pour le moment.</p>
+      }
+      <form class="message-form" [formGroup]="messageForm" (ngSubmit)="onSendMessage()" novalidate>
+        <label [attr.for]="'reply-content-' + serviceRequestId()">Votre réponse </label>
+        <textarea
+          [id]="'reply-content-' + serviceRequestId()"
+          formControlName="content"
+          [rows]="4"
+          maxlength="2000"
+          [readOnly]="isSending()"
+        ></textarea>
+        @if (messageForm.controls.content.invalid && messageForm.controls.content.touched) {
+          <p class="field-error">
+            Écrivez un message contenant du texte, de 2 000 caractères maximum.
+          </p>
+        }
+        @if (sendError(); as error) {
+          <p class="error-message" role="alert">{{ error }}</p>
+        }
+        <button type="submit" [disabled]="isSending()">
+          {{ isSending() ? 'Envoi en cours...' : 'Envoyer le message' }}
+        </button>
+      </form>
+    </div>
+  }
+</section>

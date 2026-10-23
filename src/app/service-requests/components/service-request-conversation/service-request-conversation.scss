@@ -1,0 +1,102 @@
+:host {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.conversation {
+  margin-top: 1.25rem;
+}
+
+h4 {
+  margin: 0 0 1rem;
+  color: var(--color-primary);
+  font-size: 1rem;
+}
+
+.conversation-message + .conversation-message {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.conversation-message-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+}
+
+.conversation-message-header time {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.message-read-check {
+  display: inline-block;
+  margin-inline-start: 0.35rem;
+  color: var(--color-primary);
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.conversation-message-content {
+  margin: 0.5rem 0 0;
+  white-space: pre-wrap;
+}
+
+.message-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background-color: var(--color-surface);
+}
+
+label {
+  font-weight: 600;
+}
+
+textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 8rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  resize: vertical;
+}
+
+textarea:read-only {
+  background-color: var(--color-background);
+  cursor: wait;
+}
+
+button {
+  align-self: flex-start;
+  max-width: 100%;
+  min-height: 2.75rem;
+  margin-top: 0.5rem;
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--color-primary);
+  border-radius: 0.5rem;
+  background-color: var(--color-primary);
+  color: #ffffff;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+button:disabled {
+  border-color: var(--color-border);
+  background-color: var(--color-border);
+  color: var(--color-muted);
+  cursor: wait;
+}

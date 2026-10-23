@@ -164,6 +164,26 @@
       <time [attr.datetime]="serviceRequest.createdAt">{{
         serviceRequest.createdAt | date: 'dd/MM/yyyy'
       }}</time>
+      <div class="request-actions">
+        <button
+          type="button"
+          class="secondary-button"
+          [attr.aria-expanded]="openedConversationId() === serviceRequest.id"
+          (click)="onToggleConversation(serviceRequest.id)"
+        >
+          {{
+            openedConversationId() === serviceRequest.id
+              ? 'Fermer la discussion'
+              : 'Voir la discussion'
+          }}
+        </button>
+      </div>
+
+      @if (openedConversationId() === serviceRequest.id) {
+        <app-service-request-conversation
+          [serviceRequestId]="serviceRequest.id"
+        ></app-service-request-conversation>
+      }
     </article>
   } @empty {
     <p>

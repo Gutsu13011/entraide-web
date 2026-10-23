@@ -1,0 +1,710 @@
+import { DATE_PIPE_DEFAULT_OPTIONS } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { finalize, of, Subject } from 'rxjs';
+import { ServiceRequestMessage } from '../../../models/service-request-message.model';
+import { ServiceRequestStore } from '../../services/service-request-store';
+import { ServiceRequestConversation } from './service-request-conversation';
+import { AuthSession } from '../../../auth/services/auth-session';
+
+describe('ServiceRequestConversation', () => {
+  let fixture: ComponentFixture<ServiceRequestConversation>;
+  let component: ServiceRequestConversation;
+  let response$: Subject<ServiceRequestMessage[]>;
+  const storeStub = { getMessages: vi.fn(), sendMessage: vi.fn(), markMessagesAsRead: vi.fn() };
+  const authSessionStub = { currentUser: vi.fn() };
+  const firstMessage: ServiceRequestMessage = {
+    id: 101,
+    content: 'Bonjour, serais-tu disponible samedi matin ?\nMerci !',
+    createdAt: '2026-10-22T09:30:00.000Z',
+    readAt: null,
+    serviceRequestId: 42,
+    authorUserId: 8,
+    author: { id: 8, firstName: 'Alice', lastName: 'Martin' },
+  };
+
+  function element(): HTMLElement {
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  beforeEach(async () => {
+    response$ = new Subject<ServiceRequestMessage[]>();
+    storeStub.getMessages.mockReset().mockReturnValue(response$);
+    storeStub.sendMessage.mockReset();
+    storeStub.markMessagesAsRead.mockReset().mockReturnValue(of(undefined));
+    authSessionStub.currentUser.mockReset().mockReturnValue(null);
+    await TestBed.configureTestingModule({
+      imports: [ServiceRequestConversation],
+      providers: [
+        { provide: ServiceRequestStore, useValue: storeStub },
+        { provide: AuthSession, useValue: authSessionStub },
+        { provide: DATE_PIPE_DEFAULT_OPTIONS, useValue: { timezone: 'UTC' } },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(ServiceRequestConversation);
+    fixture.componentRef.setInput('serviceRequestId', 42);
+    component = fixture.componentInstance;
+  });
+
+  afterEach(() => {
+    response$.complete();
+  });
+
+  it.each([42, 73])(
+    'should load request %s only after its input is assigned and show the pending state',
+    (serviceRequestId) => {
+      fixture.componentRef.setInput('serviceRequestId', serviceRequestId);
+      component.loadError.set('Ancienne erreur');
+      expect(storeStub.getMessages).not.toHaveBeenCalled();
+
+      fixture.detectChanges();
+
+      expect(storeStub.getMessages).toHaveBeenCalledExactlyOnceWith(serviceRequestId);
+      expect(component.isLoading()).toBe(true);
+      expect(component.loadError()).toBeNull();
+      expect(element().querySelector('[role="status"]')?.textContent).toContain(
+        'Chargement de la conversation...',
+      );
+      expect(element().querySelector('[role="alert"]')).toBeNull();
+      expect(element().querySelector('.conversation-messages')).toBeNull();
+      expect(element().querySelector('form')).toBeNull();
+      fixture.detectChanges();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('should replace the loading state with messages, authors and formatted dates in server order', () => {
+    const messages: ServiceRequestMessage[] = [
+      firstMessage,
+      {
+        ...firstMessage,
+        id: 102,
+        content: 'Oui, à partir de 10 heures.',
+        createdAt: '2026-10-22T09:35:00.000Z',
+        readAt: '2026-10-22T09:36:00.000Z',
+        authorUserId: 9,
+        author: { id: 9, firstName: 'Bruno', lastName: 'Leroy' },
+      },
+    ];
+    fixture.detectChanges();
+
+    response$.next(messages);
+    expect(component.messages()).toEqual(messages);
+    expect(component.isLoading()).toBe(true);
+    response$.complete();
+    fixture.detectChanges();
+
+    expect(component.isLoading()).toBe(false);
+    expect(element().querySelector('[role="status"]')).toBeNull();
+    expect(element().querySelector('[role="alert"]')).toBeNull();
+    expect(element().querySelector('section')?.getAttribute('aria-label')).toBe(
+      'Discussion de la demande',
+    );
+    const articles = Array.from(element().querySelectorAll('.conversation-message'));
+    expect(articles).toHaveLength(2);
+    articles.forEach((article, index) => {
+      expect(article.querySelector('strong')?.textContent?.trim()).toBe(
+        `${messages[index].author.firstName} ${messages[index].author.lastName}`,
+      );
+      expect(article.querySelector('.conversation-message-content')?.textContent?.trim()).toBe(
+        messages[index].content,
+      );
+      expect(article.querySelector('time')?.getAttribute('datetime')).toBe(
+        messages[index].createdAt,
+      );
+    });
+    expect(articles[0].querySelector('time')?.textContent?.trim()).toBe('22/10/2026 à 09:30');
+    expect(articles[1].querySelector('time')?.textContent).toContain('22/10/2026 à 09:35');
+  });
+
+  it('should show the empty conversation message only after an empty successful response', () => {
+    fixture.detectChanges();
+    expect(element().textContent).not.toContain('Aucun message dans cette discussion');
+
+    response$.next([]);
+    response$.complete();
+    fixture.detectChanges();
+
+    expect(component.isLoading()).toBe(false);
+    expect(component.messages()).toEqual([]);
+    expect(element().textContent).toContain('Aucun message dans cette discussion pour le moment.');
+    expect(element().querySelector('.conversation-message')).toBeNull();
+    expect(element().querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it.each([401, 403, 404, 500])(
+    'should replace loading with an error alert rather than an empty conversation after HTTP %s',
+    (status) => {
+      fixture.detectChanges();
+
+      response$.error(new HttpErrorResponse({ status }));
+      fixture.detectChanges();
+
+      expect(component.isLoading()).toBe(false);
+      expect(component.loadError()).toBe(
+        'Impossible de charger la conversation. Veuillez réessayer.',
+      );
+      expect(element().querySelector('[role="status"]')).toBeNull();
+      const alert = element().querySelector('[role="alert"]');
+      expect(alert?.classList.contains('error-message')).toBe(true);
+      expect(alert?.textContent).toContain(component.loadError());
+      expect(element().querySelector('.conversation-messages')).toBeNull();
+      expect(element().querySelector('form')).toBeNull();
+      expect(element().textContent).not.toContain('Aucun message dans cette discussion');
+    },
+  );
+
+  it('should render message content as text without interpreting supplied HTML', () => {
+    const content = '<img src="invalid" onerror="alert(1)"> Bonjour';
+    fixture.detectChanges();
+
+    response$.next([{ ...firstMessage, content }]);
+    response$.complete();
+    fixture.detectChanges();
+
+    const paragraph = element().querySelector('.conversation-message-content');
+    expect(paragraph?.textContent?.trim()).toBe(content);
+    expect(paragraph?.querySelector('img')).toBeNull();
+  });
+
+  describe('sending a reply', () => {
+    const errorMessage = 'Impossible d’envoyer votre message. Veuillez réessayer.';
+
+    beforeEach(() => {
+      fixture.detectChanges();
+      response$.next([firstMessage]);
+      response$.complete();
+      fixture.detectChanges();
+    });
+
+    it.each([
+      { label: 'an empty message', content: '' },
+      { label: 'a whitespace-only message', content: ' \t\n ' },
+      { label: 'more than 2000 characters', content: 'x'.repeat(2001) },
+    ])('should mark $label as touched without sending or changing history', ({ content }) => {
+      const history = component.messages();
+      component.messageForm.controls.content.setValue(content);
+
+      component.onSendMessage();
+
+      expect(component.messageForm.controls.content.touched).toBe(true);
+      expect(component.messageForm.invalid).toBe(true);
+      expect(component.messageForm.getRawValue()).toEqual({ content });
+      expect(storeStub.sendMessage).not.toHaveBeenCalled();
+      expect(component.messages()).toBe(history);
+      expect(component.isSending()).toBe(false);
+    });
+
+    it('should wait for the saved reply, ignore duplicate sends, append it and reset the draft on success', () => {
+      const sendResponse$ = new Subject<ServiceRequestMessage>();
+      const prefix = 'Réponse de démonstration.\n';
+      const content = prefix + 'x'.repeat(2000 - prefix.length);
+      expect(content.length).toBe(2000);
+      const savedMessage = {
+        ...firstMessage,
+        id: 102,
+        content,
+        createdAt: '2026-10-22T09:35:00.000Z',
+      };
+      const history = component.messages();
+      storeStub.sendMessage.mockReturnValue(sendResponse$);
+      component.messageForm.controls.content.setValue(content);
+      component.messageForm.markAllAsTouched();
+      component.sendError.set('Ancienne erreur');
+
+      component.onSendMessage();
+      component.onSendMessage();
+
+      expect(storeStub.sendMessage).toHaveBeenCalledExactlyOnceWith(42, { content });
+      expect(component.isSending()).toBe(true);
+      expect(component.sendError()).toBeNull();
+      expect(component.messages()).toBe(history);
+      expect(component.messageForm.controls.content.value).toBe(content);
+      sendResponse$.next(savedMessage);
+      expect(component.messages()).toEqual([firstMessage, savedMessage]);
+      expect(component.messages()).not.toBe(history);
+      expect(history).toEqual([firstMessage]);
+      expect(component.messageForm.getRawValue()).toEqual({ content: '' });
+      expect(component.messageForm.untouched).toBe(true);
+      expect(component.messageForm.pristine).toBe(true);
+      expect(component.isSending()).toBe(true);
+      sendResponse$.complete();
+      expect(component.isSending()).toBe(false);
+      fixture.detectChanges();
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(2);
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([401, 403, 500])(
+      'should preserve the draft and history and stop sending after HTTP %s',
+      (status) => {
+        const sendResponse$ = new Subject<ServiceRequestMessage>();
+        const history = component.messages();
+        const content = '  Bonjour, samedi matin ?\nMerci !  ';
+        storeStub.sendMessage.mockReturnValue(sendResponse$);
+        component.messageForm.controls.content.setValue(content);
+        component.onSendMessage();
+
+        sendResponse$.error(new HttpErrorResponse({ status }));
+        fixture.detectChanges();
+
+        expect(component.isSending()).toBe(false);
+        expect(component.sendError()).toBe(errorMessage);
+        expect(component.messageForm.getRawValue()).toEqual({ content });
+        expect(component.messages()).toBe(history);
+        expect(component.loadError()).toBeNull();
+        expect(element().querySelectorAll('.conversation-message')).toHaveLength(1);
+      },
+    );
+
+    it('should allow retrying the preserved draft and clear its previous sending error', () => {
+      const firstSend$ = new Subject<ServiceRequestMessage>();
+      const secondSend$ = new Subject<ServiceRequestMessage>();
+      const content = 'Merci, à samedi !';
+      const savedMessage = { ...firstMessage, id: 102, content };
+      storeStub.sendMessage.mockReturnValueOnce(firstSend$).mockReturnValueOnce(secondSend$);
+      component.messageForm.controls.content.setValue(content);
+      component.onSendMessage();
+      firstSend$.error(new HttpErrorResponse({ status: 500 }));
+      expect(component.sendError()).toBe(errorMessage);
+
+      component.onSendMessage();
+
+      expect(storeStub.sendMessage).toHaveBeenCalledTimes(2);
+      expect(storeStub.sendMessage).toHaveBeenNthCalledWith(2, 42, { content });
+      expect(component.sendError()).toBeNull();
+      expect(component.isSending()).toBe(true);
+      secondSend$.next(savedMessage);
+      secondSend$.complete();
+      expect(component.messages()).toEqual([firstMessage, savedMessage]);
+      expect(component.messageForm.controls.content.value).toBe('');
+      expect(component.isSending()).toBe(false);
+    });
+  });
+
+  describe('reply form interactions', () => {
+    beforeEach(() => {
+      fixture.detectChanges();
+      response$.next([firstMessage]);
+      response$.complete();
+      fixture.detectChanges();
+    });
+
+    function textarea(): HTMLTextAreaElement {
+      return element().querySelector('textarea')!;
+    }
+
+    function submitButton(): HTMLButtonElement {
+      return element().querySelector('button[type="submit"]')!;
+    }
+
+    function enterMessage(content: string): void {
+      textarea().value = content;
+      textarea().dispatchEvent(new Event('input', { bubbles: true }));
+      fixture.detectChanges();
+    }
+
+    function submit(): void {
+      element()
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      fixture.detectChanges();
+    }
+
+    it('should label the reply field with a request-specific id and use Angular validation', () => {
+      expect(textarea().id).toBe('reply-content-42');
+      expect(textarea().labels?.[0]?.textContent?.trim()).toBe('Votre réponse');
+      expect(textarea().rows).toBe(4);
+      expect(textarea().maxLength).toBe(2000);
+      expect(textarea().readOnly).toBe(false);
+      expect(textarea().value).toBe('');
+      expect(element().querySelector('form')!.noValidate).toBe(true);
+      expect(submitButton().disabled).toBe(false);
+      expect(element().querySelector('.field-error')).toBeNull();
+      expect(element().querySelector('[role="alert"]')).toBeNull();
+    });
+
+    it.each(['', ' \t\n '])(
+      'should reveal validation after submitting invalid content %j without sending',
+      (content) => {
+        enterMessage(content);
+        expect(element().querySelector('.field-error')).toBeNull();
+
+        submit();
+
+        expect(component.messageForm.controls.content.touched).toBe(true);
+        expect(element().querySelector('.field-error')?.textContent).toContain(
+          'Écrivez un message contenant du texte, de 2 000 caractères maximum.',
+        );
+        expect(storeStub.sendMessage).not.toHaveBeenCalled();
+        expect(submitButton().disabled).toBe(false);
+        expect(element().querySelectorAll('.conversation-message')).toHaveLength(1);
+      },
+    );
+
+    it('should reveal invalid content after blur and remove its validation error when corrected', () => {
+      enterMessage('   ');
+      expect(element().querySelector('.field-error')).toBeNull();
+
+      textarea().dispatchEvent(new Event('blur'));
+      fixture.detectChanges();
+      expect(element().querySelector('.field-error')).not.toBeNull();
+      enterMessage('Bonjour !');
+
+      expect(element().querySelector('.field-error')).toBeNull();
+      expect(storeStub.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('should lock the pending draft, prevent duplicate submission and display the saved reply on success', () => {
+      const sendResponse$ = new Subject<ServiceRequestMessage>();
+      const content = '  Bonjour !\nSamedi à 10 heures me convient.  ';
+      const savedMessage = { ...firstMessage, id: 102, content };
+      storeStub.sendMessage.mockReturnValue(sendResponse$);
+      enterMessage(content);
+
+      submit();
+
+      expect(storeStub.sendMessage).toHaveBeenCalledExactlyOnceWith(42, { content });
+      expect(textarea().readOnly).toBe(true);
+      expect(textarea().value).toBe(content);
+      expect(submitButton().disabled).toBe(true);
+      expect(submitButton().textContent).toContain('Envoi en cours');
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(1);
+      submit();
+      expect(storeStub.sendMessage).toHaveBeenCalledTimes(1);
+      sendResponse$.next(savedMessage);
+      sendResponse$.complete();
+      fixture.detectChanges();
+
+      expect(textarea().value).toBe('');
+      expect(textarea().readOnly).toBe(false);
+      expect(submitButton().disabled).toBe(false);
+      expect(submitButton().textContent).toContain('Envoyer le message');
+      const paragraphs = element().querySelectorAll('.conversation-message-content');
+      expect(paragraphs).toHaveLength(2);
+      expect(paragraphs[1].textContent).toContain(content);
+      expect(element().querySelector('.field-error')).toBeNull();
+      expect(element().querySelector('[role="alert"]')).toBeNull();
+    });
+
+    it('should display a sending error, preserve the draft and history, and allow retrying through the form', () => {
+      const firstSend$ = new Subject<ServiceRequestMessage>();
+      const secondSend$ = new Subject<ServiceRequestMessage>();
+      const content = 'Merci pour ta réponse !';
+      storeStub.sendMessage.mockReturnValueOnce(firstSend$).mockReturnValueOnce(secondSend$);
+      enterMessage(content);
+      submit();
+
+      firstSend$.error(new HttpErrorResponse({ status: 500 }));
+      fixture.detectChanges();
+
+      const alert = element().querySelector('[role="alert"]');
+      expect(alert?.classList.contains('error-message')).toBe(true);
+      expect(alert?.textContent).toContain(
+        'Impossible d’envoyer votre message. Veuillez réessayer.',
+      );
+      expect(textarea().value).toBe(content);
+      expect(textarea().readOnly).toBe(false);
+      expect(submitButton().disabled).toBe(false);
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(1);
+      submit();
+      expect(element().querySelector('[role="alert"]')).toBeNull();
+      expect(storeStub.sendMessage).toHaveBeenCalledTimes(2);
+      secondSend$.next({ ...firstMessage, id: 102, content });
+      secondSend$.complete();
+      fixture.detectChanges();
+      expect(textarea().value).toBe('');
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(2);
+    });
+
+    it('should allow sending the first reply in an empty conversation', () => {
+      const sendResponse$ = new Subject<ServiceRequestMessage>();
+      component.messages.set([]);
+      fixture.detectChanges();
+      expect(element().textContent).toContain(
+        'Aucun message dans cette discussion pour le moment.',
+      );
+      const content = 'Bonjour, voici mon premier message.';
+      storeStub.sendMessage.mockReturnValue(sendResponse$);
+      enterMessage(content);
+
+      submit();
+      sendResponse$.next({ ...firstMessage, content });
+      sendResponse$.complete();
+      fixture.detectChanges();
+
+      expect(element().textContent).not.toContain(
+        'Aucun message dans cette discussion pour le moment.',
+      );
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(1);
+      expect(element().querySelector('.conversation-message-content')?.textContent).toContain(
+        content,
+      );
+      expect(element().querySelector('form')).not.toBeNull();
+    });
+  });
+
+  describe('closing while a request is pending', () => {
+    it.each(['success', 'error'] as const)(
+      'should unsubscribe from loading on destruction and ignore a late %s',
+      (outcome) => {
+        const teardown = vi.fn();
+        storeStub.getMessages.mockReturnValue(response$.pipe(finalize(teardown)));
+        fixture.detectChanges();
+        expect(component.isLoading()).toBe(true);
+        expect(teardown).not.toHaveBeenCalled();
+
+        fixture.destroy();
+
+        expect(teardown).toHaveBeenCalledTimes(1);
+        expect(component.isLoading()).toBe(false);
+        if (outcome === 'success') {
+          response$.next([firstMessage]);
+          response$.complete();
+        } else {
+          response$.error(new HttpErrorResponse({ status: 500 }));
+        }
+        expect(component.messages()).toEqual([]);
+        expect(component.loadError()).toBeNull();
+        expect(teardown).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each(['success', 'error'] as const)(
+      'should unsubscribe from sending on destruction and ignore a late %s without resetting the draft',
+      (outcome) => {
+        const sendResponse$ = new Subject<ServiceRequestMessage>();
+        const teardown = vi.fn();
+        const content = 'Brouillon en cours d’envoi.';
+        fixture.detectChanges();
+        response$.next([firstMessage]);
+        response$.complete();
+        storeStub.sendMessage.mockReturnValue(sendResponse$.pipe(finalize(teardown)));
+        component.messageForm.controls.content.setValue(content);
+        const history = component.messages();
+        component.onSendMessage();
+        expect(component.isSending()).toBe(true);
+        expect(teardown).not.toHaveBeenCalled();
+
+        fixture.destroy();
+
+        expect(teardown).toHaveBeenCalledTimes(1);
+        expect(component.isSending()).toBe(false);
+        if (outcome === 'success') {
+          sendResponse$.next({ ...firstMessage, id: 102, content });
+          sendResponse$.complete();
+        } else {
+          sendResponse$.error(new HttpErrorResponse({ status: 500 }));
+        }
+        expect(component.messages()).toBe(history);
+        expect(component.messages()).toEqual([firstMessage]);
+        expect(component.messageForm.getRawValue()).toEqual({ content });
+        expect(component.sendError()).toBeNull();
+        expect(teardown).toHaveBeenCalledTimes(1);
+      },
+    );
+  });
+
+  describe('marking received messages as read', () => {
+    it('should not mark messages without an authenticated user', () => {
+      component.markReceivedMessagesAsRead([firstMessage]);
+
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { label: 'an empty conversation', messages: [] },
+      { label: 'only own unread messages', messages: [firstMessage] },
+      {
+        label: 'only already-read received messages',
+        messages: [{ ...firstMessage, authorUserId: 9, readAt: '2026-10-23T07:30:00.000Z' }],
+      },
+    ])('should skip $label', ({ messages }) => {
+      authSessionStub.currentUser.mockReturnValue({ id: 8 });
+
+      component.markReceivedMessagesAsRead(messages);
+
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+    });
+
+    it.each([8, 9])(
+      'should mark received unread messages for participant %s and clear the previous read error',
+      (userId) => {
+        authSessionStub.currentUser.mockReturnValue({ id: userId });
+        const received = { ...firstMessage, authorUserId: userId === 8 ? 9 : 8 };
+        component.readError.set('Ancienne erreur');
+
+        component.markReceivedMessagesAsRead([received]);
+
+        expect(storeStub.markMessagesAsRead).toHaveBeenCalledExactlyOnceWith(42, {
+          upToMessageId: 101,
+        });
+        expect(component.readError()).toBeNull();
+        expect(received.readAt).toBeNull();
+      },
+    );
+
+    it('should use the highest displayed id rather than the last or highest unread received id', () => {
+      authSessionStub.currentUser.mockReturnValue({ id: 8 });
+      const messages = [
+        { ...firstMessage, id: 105, authorUserId: 9, createdAt: '2026-10-23T07:30:00.000Z' },
+        { ...firstMessage, id: 109, createdAt: '2026-10-23T07:31:00.000Z' },
+        { ...firstMessage, id: 103, authorUserId: 9, createdAt: '2026-10-23T07:32:00.000Z' },
+      ];
+      const snapshot = structuredClone(messages);
+
+      component.markReceivedMessagesAsRead(messages);
+
+      expect(storeStub.markMessagesAsRead).toHaveBeenCalledExactlyOnceWith(42, {
+        upToMessageId: 109,
+      });
+      expect(messages).toEqual(snapshot);
+    });
+
+    it('should report a read failure separately without hiding messages or changing the draft', () => {
+      authSessionStub.currentUser.mockReturnValue({ id: 9 });
+      const readResponse$ = new Subject<void>();
+      storeStub.markMessagesAsRead.mockReturnValue(readResponse$);
+      fixture.detectChanges();
+      response$.next([firstMessage]);
+      response$.complete();
+      fixture.detectChanges();
+      component.messageForm.controls.content.setValue('Brouillon conservé.');
+      const history = component.messages();
+      expect(storeStub.markMessagesAsRead).toHaveBeenCalledExactlyOnceWith(42, {
+        upToMessageId: 101,
+      });
+
+      readResponse$.error(new HttpErrorResponse({ status: 500 }));
+      fixture.detectChanges();
+
+      expect(component.readError()).toBe('Impossible de marquer les messages comme lus');
+      expect(component.loadError()).toBeNull();
+      expect(component.sendError()).toBeNull();
+      expect(component.messages()).toBe(history);
+      expect(component.messageForm.controls.content.value).toBe('Brouillon conservé.');
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(1);
+      expect(element().querySelector('form')).not.toBeNull();
+    });
+
+    it('should unsubscribe a pending read update on destruction and ignore its late error', () => {
+      authSessionStub.currentUser.mockReturnValue({ id: 9 });
+      const readResponse$ = new Subject<void>();
+      const teardown = vi.fn();
+      storeStub.markMessagesAsRead.mockReturnValue(readResponse$.pipe(finalize(teardown)));
+      component.markReceivedMessagesAsRead([firstMessage]);
+      expect(teardown).not.toHaveBeenCalled();
+
+      fixture.destroy();
+
+      expect(teardown).toHaveBeenCalledTimes(1);
+      readResponse$.error(new HttpErrorResponse({ status: 500 }));
+      expect(component.readError()).toBeNull();
+    });
+  });
+
+  describe('read receipts after rendering', () => {
+    beforeEach(() => {
+      authSessionStub.currentUser.mockReturnValue({ id: 9 });
+    });
+
+    it('should mark only after the loaded history is rendered and not repeat on later renders', () => {
+      const messages = [
+        firstMessage,
+        {
+          ...firstMessage,
+          id: 105,
+          authorUserId: 9,
+          author: { id: 9, firstName: 'Bruno', lastName: 'Leroy' },
+        },
+      ];
+      storeStub.markMessagesAsRead.mockImplementation(() => {
+        expect(element().querySelectorAll('.conversation-message')).toHaveLength(2);
+        expect(element().querySelector('[role="status"]')).toBeNull();
+        expect(element().querySelector('form')).not.toBeNull();
+        return of(undefined);
+      });
+      fixture.detectChanges();
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+
+      response$.next(messages);
+      response$.complete();
+      expect(component.isLoading()).toBe(false);
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(0);
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      fixture.detectChanges();
+
+      expect(storeStub.markMessagesAsRead).toHaveBeenCalledExactlyOnceWith(42, {
+        upToMessageId: 105,
+      });
+      const textarea = element().querySelector('textarea')!;
+      textarea.value = 'Brouillon en cours';
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      fixture.detectChanges();
+      fixture.detectChanges();
+      expect(storeStub.markMessagesAsRead).toHaveBeenCalledTimes(1);
+      expect(component.messages()).toEqual(messages);
+      expect(component.readError()).toBeNull();
+    });
+
+    it.each([
+      { label: 'an empty history', messages: [] },
+      { label: 'only own unread replies', messages: [{ ...firstMessage, authorUserId: 9 }] },
+      {
+        label: 'received replies already read',
+        messages: [{ ...firstMessage, readAt: '2026-10-23T07:30:00.000Z' }],
+      },
+    ])('should render $label without issuing a read update', ({ messages }) => {
+      fixture.detectChanges();
+      response$.next(messages);
+      response$.complete();
+
+      fixture.detectChanges();
+
+      expect(component.isLoading()).toBe(false);
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(messages.length);
+      expect(element().querySelector('form')).not.toBeNull();
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+    });
+
+    it('should not mark a late history response after closing before it arrives', () => {
+      fixture.detectChanges();
+
+      fixture.destroy();
+      response$.next([firstMessage]);
+      response$.complete();
+      TestBed.tick();
+
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      expect(component.messages()).toEqual([]);
+    });
+
+    it('should cancel the scheduled read update when closed after loading but before rendering', () => {
+      fixture.detectChanges();
+      response$.next([firstMessage]);
+      response$.complete();
+      expect(component.messages()).toEqual([firstMessage]);
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+
+      fixture.destroy();
+      TestBed.tick();
+
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+    });
+
+    it('should show a loading failure without marking or displaying its previously emitted history', () => {
+      fixture.detectChanges();
+      response$.next([firstMessage]);
+      response$.error(new HttpErrorResponse({ status: 500 }));
+
+      fixture.detectChanges();
+
+      expect(element().querySelector('[role="alert"]')?.textContent).toContain(
+        'Impossible de charger la conversation. Veuillez réessayer.',
+      );
+      expect(element().querySelector('.conversation-messages')).toBeNull();
+      expect(element().querySelector('form')).toBeNull();
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+    });
+  });
+});

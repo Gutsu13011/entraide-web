@@ -6,6 +6,11 @@ import {
   UpdateServiceRequestStatus,
 } from '../../models/service-request.model';
 import { Observable } from 'rxjs';
+import {
+  CreateServiceRequestMessage,
+  MarkServiceRequestMessagesRead,
+  ServiceRequestMessage,
+} from '../../models/service-request-message.model';
 
 @Service()
 export class ServiceRequestStore {
@@ -38,6 +43,32 @@ export class ServiceRequestStore {
     return this.http.patch<ServiceRequest>(
       `${this.url}/service-requests/${id}/status`,
       updateServiceRequestStatus,
+    );
+  }
+
+  getMessages(serviceRequestId: number): Observable<ServiceRequestMessage[]> {
+    return this.http.get<ServiceRequestMessage[]>(
+      `${this.url}/service-requests/${serviceRequestId}/messages`,
+    );
+  }
+
+  sendMessage(
+    serviceRequestId: number,
+    message: CreateServiceRequestMessage,
+  ): Observable<ServiceRequestMessage> {
+    return this.http.post<ServiceRequestMessage>(
+      `${this.url}/service-requests/${serviceRequestId}/messages`,
+      message,
+    );
+  }
+
+  markMessagesAsRead(
+    serviceRequestId: number,
+    boundary: MarkServiceRequestMessagesRead,
+  ): Observable<void> {
+    return this.http.patch<void>(
+      `${this.url}/service-requests/${serviceRequestId}/messages/read`,
+      boundary,
     );
   }
 }
