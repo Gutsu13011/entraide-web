@@ -609,7 +609,7 @@ describe('App unread message session synchronization', () => {
         httpTesting.expectNone(url);
       });
 
-      it('should resume on the original next tick after becoming visible without refreshing immediately', () => {
+      it('should refresh immediately when becoming visible and preserve the existing polling schedule', () => {
         signIn().flush(emptyCounts);
         fixture.detectChanges();
         visibility = 'hidden';
@@ -618,14 +618,20 @@ describe('App unread message session synchronization', () => {
 
         visibility = 'visible';
         TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        const returning = httpTesting.expectOne(url);
+        expect(returning.request.method).toBe('GET');
+        expect(returning.request.headers.get('Authorization')).toBe('Bearer token-a');
+        returning.flush({ sentRequests: 0, receivedRequests: 1, total: 1 });
         fixture.detectChanges();
-        httpTesting.expectNone(url);
+        expect(countsStore.counts()).toEqual({ sentRequests: 0, receivedRequests: 1, total: 1 });
+        expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(1);
+
         vi.advanceTimersByTime(9_999);
         httpTesting.expectNone(url);
         vi.advanceTimersByTime(1);
-        httpTesting.expectOne(url).flush({ sentRequests: 0, receivedRequests: 1, total: 1 });
+        httpTesting.expectOne(url).flush(emptyCounts);
         fixture.detectChanges();
-        expect(countsStore.counts()).toEqual({ sentRequests: 0, receivedRequests: 1, total: 1 });
+        expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(0);
         vi.advanceTimersByTime(30_000);
         httpTesting.expectOne(url).flush(emptyCounts);
         httpTesting.expectNone(url);
@@ -667,6 +673,160 @@ describe('App unread message session synchronization', () => {
         fixture.detectChanges();
         vi.advanceTimersByTime(30_000);
         httpTesting.expectOne(url).flush(emptyCounts);
+      });
+
+      it('should ignore visibility events while anonymous', () => {
+        fixture.detectChanges();
+        visibility = 'hidden';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+
+        visibility = 'visible';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        vi.advanceTimersByTime(90_000);
+
+        expect(authSessionStub.currentUser()).toBeNull();
+        expect(countsStore.counts()).toBeNull();
+        httpTesting.expectNone(url);
+      });
+
+      it('should let a return-triggered request finish when the next periodic tick arrives', () => {
+        signIn().flush(emptyCounts);
+        fixture.detectChanges();
+        visibility = 'hidden';
+        vi.advanceTimersByTime(20_000);
+
+        visibility = 'visible';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        const pending = httpTesting.expectOne(url);
+        vi.advanceTimersByTime(10_000);
+        fixture.detectChanges();
+        expect(pending.cancelled).toBe(false);
+        expect(countsStore.isLoading()).toBe(true);
+        httpTesting.expectNone(url);
+
+        pending.flush({ sentRequests: 2, receivedRequests: 0, total: 2 });
+        fixture.detectChanges();
+        vi.advanceTimersByTime(30_000);
+        httpTesting.expectOne(url).flush(emptyCounts);
+        httpTesting.expectNone(url);
+      });
+
+      it('should keep listening and allow another return-triggered refresh after a server error', () => {
+        signIn().flush(emptyCounts);
+        fixture.detectChanges();
+        visibility = 'hidden';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        httpTesting.expectNone(url);
+        visibility = 'visible';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        httpTesting
+          .expectOne(url)
+          .flush(
+            { message: 'Server failure' },
+            { status: 500, statusText: 'Internal Server Error' },
+          );
+        fixture.detectChanges();
+        expect(countsStore.errorMessage()).toBe('Impossible de charger les compteurs de messages.');
+        expect(authSessionStub.currentUser()).toEqual(userA);
+
+        visibility = 'hidden';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        httpTesting.expectNone(url);
+        visibility = 'visible';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        const retry = httpTesting.expectOne(url);
+        expect(countsStore.errorMessage()).toBeNull();
+        retry.flush({ sentRequests: 1, receivedRequests: 0, total: 1 });
+        fixture.detectChanges();
+        expect(countsStore.counts()).toEqual({ sentRequests: 1, receivedRequests: 0, total: 1 });
+        httpTesting.expectNone(url);
+      });
+
+      it('should stop return-triggered refreshes and polling after a 401 clears the session', () => {
+        signIn().flush(emptyCounts);
+        fixture.detectChanges();
+        visibility = 'hidden';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        visibility = 'visible';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+
+        httpTesting
+          .expectOne(url)
+          .flush({ message: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
+        fixture.detectChanges();
+        visibility = 'hidden';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        visibility = 'visible';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        vi.advanceTimersByTime(90_000);
+
+        expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
+        expect(authSessionStub.currentUser()).toBeNull();
+        expect(countsStore.counts()).toBeNull();
+        expect(countsStore.errorMessage()).toBeNull();
+        httpTesting.expectNone(url);
+      });
+
+      it('should remove the previous account visibility listener and refresh only with the new token', () => {
+        const document = TestBed.inject(DOCUMENT);
+        const addListener = vi.spyOn(document, 'addEventListener');
+        const removeListener = vi.spyOn(document, 'removeEventListener');
+        signIn().flush(emptyCounts);
+        fixture.detectChanges();
+        const oldListeners = addListener.mock.calls.filter(
+          ([event]) => event === 'visibilitychange',
+        );
+        expect(oldListeners).toHaveLength(1);
+        const oldHandler = oldListeners[0][1];
+        visibility = 'hidden';
+        document.dispatchEvent(new Event('visibilitychange'));
+
+        signIn(userB, 'token-b').flush(emptyCounts);
+        fixture.detectChanges();
+
+        expect(
+          removeListener.mock.calls.some(
+            ([event, handler]) => event === 'visibilitychange' && handler === oldHandler,
+          ),
+        ).toBe(true);
+        expect(
+          addListener.mock.calls.filter(([event]) => event === 'visibilitychange'),
+        ).toHaveLength(2);
+        visibility = 'visible';
+        document.dispatchEvent(new Event('visibilitychange'));
+        const returning = httpTesting.expectOne(url);
+        expect(returning.request.headers.get('Authorization')).toBe('Bearer token-b');
+        returning.flush({ sentRequests: 0, receivedRequests: 4, total: 4 });
+        fixture.detectChanges();
+        expect(countsStore.counts()).toEqual({ sentRequests: 0, receivedRequests: 4, total: 4 });
+        expect(authSessionStub.currentUser()).toEqual(userB);
+        httpTesting.expectNone(url);
+      });
+
+      it('should remove the visibility listener on App destruction and ignore later browser events', () => {
+        const document = TestBed.inject(DOCUMENT);
+        const addListener = vi.spyOn(document, 'addEventListener');
+        const removeListener = vi.spyOn(document, 'removeEventListener');
+        signIn().flush(emptyCounts);
+        fixture.detectChanges();
+        const listeners = addListener.mock.calls.filter(([event]) => event === 'visibilitychange');
+        expect(listeners).toHaveLength(1);
+        const handler = listeners[0][1];
+
+        fixture.destroy();
+
+        expect(
+          removeListener.mock.calls.some(
+            ([event, removed]) => event === 'visibilitychange' && removed === handler,
+          ),
+        ).toBe(true);
+        visibility = 'hidden';
+        document.dispatchEvent(new Event('visibilitychange'));
+        visibility = 'visible';
+        document.dispatchEvent(new Event('visibilitychange'));
+        vi.advanceTimersByTime(90_000);
+        expect(authSessionStub.currentUser()).toEqual(userA);
+        httpTesting.expectNone(url);
       });
 
       it('should not restart polling when the page becomes visible after logout while hidden', () => {

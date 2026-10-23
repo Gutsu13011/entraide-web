@@ -339,13 +339,16 @@ is still pending, allowing slow responses to finish. Manual
 refreshes after reading keep the same polling schedule. A server error allows
 another attempt at the next tick; a 401 clears the session through the
 interceptor and stops polling. Logout, account changes and App destruction
-stop the previous timer. A newly signed-in account loads its own counts
+stop the previous timer and remove the visibility listener. A newly signed-in account loads its own counts
 immediately and starts a new timer.
 
 The initial count load still runs when signing in on a hidden page. Hiding
 the document does not cancel an in-flight request or clear loaded badges.
-Returning to the page resumes requests on the existing timer's next tick,
-without an immediate refresh or a new timer.
+A `visibilitychange` listener refreshes counts immediately when the document
+becomes visible, provided no count request is already pending. Hidden events
+do not refresh counts. Returning to the page keeps the existing polling
+schedule; its ticks skip a pending return-triggered request. A count loading
+failure leaves the listener active for a later retry, while logout removes it.
 
 Polling updates only header counts; it does not reload conversation history
 or read dates. There is no real-time push, and browser scheduling can delay ticks.
