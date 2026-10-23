@@ -15,6 +15,7 @@ import { DatePipe } from '@angular/common';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AuthSession } from '../../../auth/services/auth-session';
+import { unreadMessageState } from '../../services/unread-message-store';
 
 @Component({
   imports: [DatePipe, ReactiveFormsModule],
@@ -23,12 +24,11 @@ import { AuthSession } from '../../../auth/services/auth-session';
   templateUrl: './service-request-conversation.html',
 })
 export class ServiceRequestConversation implements OnInit {
-  constructor(
-    private readonly serviceRequestStore: ServiceRequestStore,
-    private readonly destroyRef: DestroyRef,
-  ) {}
+  private readonly serviceRequestStore = inject(ServiceRequestStore);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly authSession = inject(AuthSession);
   private readonly injector = inject(Injector);
+  private readonly unreadMessageState = inject(unreadMessageState);
 
   readonly serviceRequestId = input.required<number>();
   readonly messages = signal<ServiceRequestMessage[]>([]);
@@ -125,6 +125,9 @@ export class ServiceRequestConversation implements OnInit {
       .markMessagesAsRead(this.serviceRequestId(), { upToMessageId })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
+        next: () => {
+          this.unreadMessageState.refresh();
+        },
         error: () => {
           this.readError.set('Impossible de marquer les messages comme lus');
         },

@@ -66,6 +66,28 @@ header nav button {
   text-decoration: none;
 }
 
+header nav a {
+  gap: 0.5rem;
+}
+
+header nav .unread-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  padding: 0.125rem 0.4375rem;
+  border-radius: 999px;
+  background-color: var(--color-primary);
+  color: var(--color-surface);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 header nav button {
   cursor: pointer;
 }

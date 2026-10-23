@@ -1,11 +1,13 @@
 import { DATE_PIPE_DEFAULT_OPTIONS } from '@angular/common';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { finalize, of, Subject } from 'rxjs';
 import { ServiceRequestMessage } from '../../../models/service-request-message.model';
 import { ServiceRequestStore } from '../../services/service-request-store';
 import { ServiceRequestConversation } from './service-request-conversation';
 import { AuthSession } from '../../../auth/services/auth-session';
+import { unreadMessageState } from '../../services/unread-message-store';
 
 describe('ServiceRequestConversation', () => {
   let fixture: ComponentFixture<ServiceRequestConversation>;
@@ -13,6 +15,7 @@ describe('ServiceRequestConversation', () => {
   let response$: Subject<ServiceRequestMessage[]>;
   const storeStub = { getMessages: vi.fn(), sendMessage: vi.fn(), markMessagesAsRead: vi.fn() };
   const authSessionStub = { currentUser: vi.fn() };
+  const unreadStoreStub = { refresh: vi.fn() };
   const firstMessage: ServiceRequestMessage = {
     id: 101,
     content: 'Bonjour, serais-tu disponible samedi matin ?\nMerci !',
@@ -28,6 +31,7 @@ describe('ServiceRequestConversation', () => {
   }
 
   beforeEach(async () => {
+    unreadStoreStub.refresh.mockReset();
     response$ = new Subject<ServiceRequestMessage[]>();
     storeStub.getMessages.mockReset().mockReturnValue(response$);
     storeStub.sendMessage.mockReset();
@@ -38,6 +42,7 @@ describe('ServiceRequestConversation', () => {
       providers: [
         { provide: ServiceRequestStore, useValue: storeStub },
         { provide: AuthSession, useValue: authSessionStub },
+        { provide: unreadMessageState, useValue: unreadStoreStub },
         { provide: DATE_PIPE_DEFAULT_OPTIONS, useValue: { timezone: 'UTC' } },
       ],
     }).compileComponents();
@@ -506,10 +511,51 @@ describe('ServiceRequestConversation', () => {
   });
 
   describe('marking received messages as read', () => {
+    it('should refresh shared counts only when the read update succeeds', () => {
+      authSessionStub.currentUser.mockReturnValue({ id: 9 });
+      const readResponse$ = new Subject<void>();
+      storeStub.markMessagesAsRead.mockReturnValue(readResponse$);
+
+      component.markReceivedMessagesAsRead([firstMessage]);
+
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
+      readResponse$.next(undefined);
+      expect(unreadStoreStub.refresh).toHaveBeenCalledTimes(1);
+      readResponse$.complete();
+      expect(unreadStoreStub.refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not refresh counts when a read update completes without acknowledgement', () => {
+      authSessionStub.currentUser.mockReturnValue({ id: 9 });
+      const readResponse$ = new Subject<void>();
+      storeStub.markMessagesAsRead.mockReturnValue(readResponse$);
+      component.markReceivedMessagesAsRead([firstMessage]);
+
+      readResponse$.complete();
+
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
+    });
+
+    it('should not refresh counts after closing before a successful read acknowledgement arrives', () => {
+      authSessionStub.currentUser.mockReturnValue({ id: 9 });
+      const readResponse$ = new Subject<void>();
+      const teardown = vi.fn();
+      storeStub.markMessagesAsRead.mockReturnValue(readResponse$.pipe(finalize(teardown)));
+      component.markReceivedMessagesAsRead([firstMessage]);
+
+      fixture.destroy();
+      readResponse$.next(undefined);
+      readResponse$.complete();
+
+      expect(teardown).toHaveBeenCalledTimes(1);
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
+    });
+
     it('should not mark messages without an authenticated user', () => {
       component.markReceivedMessagesAsRead([firstMessage]);
 
       expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -525,6 +571,7 @@ describe('ServiceRequestConversation', () => {
       component.markReceivedMessagesAsRead(messages);
 
       expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
     });
 
     it.each([8, 9])(
@@ -541,6 +588,7 @@ describe('ServiceRequestConversation', () => {
         });
         expect(component.readError()).toBeNull();
         expect(received.readAt).toBeNull();
+        expect(unreadStoreStub.refresh).toHaveBeenCalledTimes(1);
       },
     );
 
@@ -579,6 +627,7 @@ describe('ServiceRequestConversation', () => {
       fixture.detectChanges();
 
       expect(component.readError()).toBe('Impossible de marquer les messages comme lus');
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
       expect(component.loadError()).toBeNull();
       expect(component.sendError()).toBeNull();
       expect(component.messages()).toBe(history);
@@ -626,12 +675,14 @@ describe('ServiceRequestConversation', () => {
       });
       fixture.detectChanges();
       expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
 
       response$.next(messages);
       response$.complete();
       expect(component.isLoading()).toBe(false);
       expect(element().querySelectorAll('.conversation-message')).toHaveLength(0);
       expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
       fixture.detectChanges();
 
       expect(storeStub.markMessagesAsRead).toHaveBeenCalledExactlyOnceWith(42, {
@@ -665,6 +716,7 @@ describe('ServiceRequestConversation', () => {
       expect(element().querySelectorAll('.conversation-message')).toHaveLength(messages.length);
       expect(element().querySelector('form')).not.toBeNull();
       expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
     });
 
     it('should not mark a late history response after closing before it arrives', () => {
@@ -676,6 +728,7 @@ describe('ServiceRequestConversation', () => {
       TestBed.tick();
 
       expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
       expect(component.messages()).toEqual([]);
     });
 
@@ -685,11 +738,13 @@ describe('ServiceRequestConversation', () => {
       response$.complete();
       expect(component.messages()).toEqual([firstMessage]);
       expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
 
       fixture.destroy();
       TestBed.tick();
 
       expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
     });
 
     it('should show a loading failure without marking or displaying its previously emitted history', () => {
@@ -705,6 +760,131 @@ describe('ServiceRequestConversation', () => {
       expect(element().querySelector('.conversation-messages')).toBeNull();
       expect(element().querySelector('form')).toBeNull();
       expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('ServiceRequestConversation shared unread counts integration', () => {
+  const baseUrl = 'http://localhost:3000/service-requests';
+  const countsUrl = `${baseUrl}/messages/unread-counts`;
+  const receivedMessage: ServiceRequestMessage = {
+    id: 101,
+    content: 'Bonjour, voici une réponse à votre demande.',
+    createdAt: '2026-10-23T10:30:00.000Z',
+    readAt: null,
+    serviceRequestId: 42,
+    authorUserId: 8,
+    author: { id: 8, firstName: 'Alice', lastName: 'Martin' },
+  };
+  let fixture: ComponentFixture<ServiceRequestConversation>;
+  let httpTesting: HttpTestingController;
+  let countsStore: InstanceType<typeof unreadMessageState>;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [ServiceRequestConversation],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AuthSession, useValue: { currentUser: () => ({ id: 9 }) } },
+      ],
+    }).compileComponents();
+    httpTesting = TestBed.inject(HttpTestingController);
+    countsStore = TestBed.inject(unreadMessageState);
+    countsStore.refresh();
+    httpTesting.expectOne(countsUrl).flush({ sentRequests: 2, receivedRequests: 1, total: 3 });
+    fixture = TestBed.createComponent(ServiceRequestConversation);
+    fixture.componentRef.setInput('serviceRequestId', 42);
+  });
+
+  afterEach(() => {
+    httpTesting.verify();
+  });
+
+  function renderReceivedMessage() {
+    fixture.detectChanges();
+    const loading = httpTesting.expectOne(`${baseUrl}/42/messages`);
+    expect(loading.request.method).toBe('GET');
+    httpTesting.expectNone(countsUrl);
+    loading.flush([receivedMessage]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.conversation-message')).toHaveLength(1);
+    const marking = httpTesting.expectOne(`${baseUrl}/42/messages/read`);
+    expect(marking.request.method).toBe('PATCH');
+    expect(marking.request.body).toEqual({ upToMessageId: 101 });
+    httpTesting.expectNone(countsUrl);
+    expect(countsStore.counts()).toEqual({ sentRequests: 2, receivedRequests: 1, total: 3 });
+    return marking;
+  }
+
+  it.each([
+    { sentRequests: 2, receivedRequests: 0, total: 2 },
+    { sentRequests: 0, receivedRequests: 0, total: 0 },
+  ])(
+    'should reload server counts after the read acknowledgement and retain total=$total',
+    (counts) => {
+      const marking = renderReceivedMessage();
+
+      marking.flush(null, { status: 204, statusText: 'No Content' });
+
+      const refreshing = httpTesting.expectOne(countsUrl);
+      expect(refreshing.request.method).toBe('GET');
+      expect(refreshing.request.params.keys()).toEqual([]);
+      expect(countsStore.isLoading()).toBe(true);
+      refreshing.flush(counts);
+      fixture.detectChanges();
+      fixture.detectChanges();
+      expect(countsStore.counts()).toEqual(counts);
+      expect(countsStore.isLoading()).toBe(false);
+      expect(countsStore.errorMessage()).toBeNull();
+      expect(fixture.componentInstance.messages()).toEqual([receivedMessage]);
+      expect(fixture.nativeElement.querySelector('form')).not.toBeNull();
+      httpTesting.expectNone(countsUrl);
+      httpTesting.expectNone(`${baseUrl}/42/messages/read`);
+    },
+  );
+
+  it('should preserve counts and show the read error without refreshing after a failed read update', () => {
+    const marking = renderReceivedMessage();
+
+    marking.flush({ message: 'Server failure' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(countsStore.counts()).toEqual({ sentRequests: 2, receivedRequests: 1, total: 3 });
+    expect(fixture.componentInstance.readError()).toBe(
+      'Impossible de marquer les messages comme lus',
+    );
+    expect(fixture.nativeElement.querySelector('form')).not.toBeNull();
+    httpTesting.expectNone(countsUrl);
+  });
+
+  it('should keep the conversation and draft after successful marking but failed count refreshing', () => {
+    const marking = renderReceivedMessage();
+    fixture.componentInstance.messageForm.controls.content.setValue('Mon brouillon');
+    marking.flush(null, { status: 204, statusText: 'No Content' });
+
+    httpTesting
+      .expectOne(countsUrl)
+      .flush({ message: 'Server failure' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(countsStore.counts()).toBeNull();
+    expect(countsStore.errorMessage()).toBe('Impossible de charger les compteurs de messages.');
+    expect(fixture.componentInstance.readError()).toBeNull();
+    expect(fixture.componentInstance.messages()).toEqual([receivedMessage]);
+    expect(fixture.componentInstance.messageForm.controls.content.value).toBe('Mon brouillon');
+    expect(fixture.nativeElement.querySelector('form')).not.toBeNull();
+    httpTesting.expectNone(countsUrl);
+  });
+
+  it('should cancel a pending read update on closure without issuing a count request', () => {
+    const marking = renderReceivedMessage();
+
+    fixture.destroy();
+
+    expect(marking.cancelled).toBe(true);
+    expect(countsStore.counts()).toEqual({ sentRequests: 2, receivedRequests: 1, total: 3 });
+    httpTesting.expectNone(countsUrl);
   });
 });

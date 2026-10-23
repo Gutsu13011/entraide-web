@@ -10,6 +10,7 @@ import {
 } from '../../models/service-request.model';
 import { ServicePricingType } from '../../models/service-offering.model';
 import { ServiceRequestMessage } from '../../models/service-request-message.model';
+import type { ServiceRequestUnreadMessageCounts } from '../../models/service-request-unread-message-counts.model';
 
 describe('ServiceRequestStore', () => {
   let service: ServiceRequestStore;
@@ -438,6 +439,62 @@ describe('ServiceRequestStore', () => {
         const pending = httpTesting.expectOne(path);
         expect(pending.request.method).toBe(method);
         pending.flush(errorBody, { status, statusText });
+
+        expect(nextSpy).not.toHaveBeenCalled();
+        expect(completeSpy).not.toHaveBeenCalled();
+        expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ status, error: errorBody }),
+        );
+      },
+    );
+  });
+
+  describe('getUnreadMessageCounts', () => {
+    const url = 'http://localhost:3000/service-requests/messages/unread-counts';
+
+    it.each<ServiceRequestUnreadMessageCounts>([
+      { sentRequests: 4, receivedRequests: 5, total: 9 },
+      { sentRequests: 0, receivedRequests: 0, total: 0 },
+    ])(
+      'should fetch the authenticated message counts and return $total unread replies after the response',
+      (counts) => {
+        const nextSpy = vi.fn();
+        const completeSpy = vi.fn();
+        const errorSpy = vi.fn();
+
+        service
+          .getUnreadMessageCounts()
+          .subscribe({ next: nextSpy, complete: completeSpy, error: errorSpy });
+
+        const pending = httpTesting.expectOne(url);
+        expect(pending.request.method).toBe('GET');
+        expect(pending.request.body).toBeNull();
+        expect(pending.request.params.keys()).toEqual([]);
+        expect(nextSpy).not.toHaveBeenCalled();
+        expect(completeSpy).not.toHaveBeenCalled();
+        pending.flush(counts);
+
+        expect(nextSpy).toHaveBeenCalledExactlyOnceWith(counts);
+        expect(completeSpy).toHaveBeenCalledTimes(1);
+        expect(errorSpy).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      { status: 401, statusText: 'Unauthorized' },
+      { status: 500, statusText: 'Internal Server Error' },
+    ])(
+      'should propagate HTTP $status without replacing a count failure with zeros',
+      ({ status, statusText }) => {
+        const nextSpy = vi.fn();
+        const completeSpy = vi.fn();
+        const errorSpy = vi.fn();
+        const errorBody = { message: statusText };
+        service
+          .getUnreadMessageCounts()
+          .subscribe({ next: nextSpy, complete: completeSpy, error: errorSpy });
+
+        httpTesting.expectOne(url).flush(errorBody, { status, statusText });
 
         expect(nextSpy).not.toHaveBeenCalled();
         expect(completeSpy).not.toHaveBeenCalled();

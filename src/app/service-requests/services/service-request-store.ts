@@ -11,6 +11,7 @@ import {
   MarkServiceRequestMessagesRead,
   ServiceRequestMessage,
 } from '../../models/service-request-message.model';
+import { ServiceRequestUnreadMessageCounts } from '../../models/service-request-unread-message-counts.model';
 
 @Service()
 export class ServiceRequestStore {
@@ -69,6 +70,12 @@ export class ServiceRequestStore {
     return this.http.patch<void>(
       `${this.url}/service-requests/${serviceRequestId}/messages/read`,
       boundary,
+    );
+  }
+
+  getUnreadMessageCounts(): Observable<ServiceRequestUnreadMessageCounts> {
+    return this.http.get<ServiceRequestUnreadMessageCounts>(
+      `${this.url}/service-requests/messages/unread-counts`,
     );
   }
 }

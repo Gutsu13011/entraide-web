@@ -16,14 +16,37 @@
           [routerLink]="['/service-requests', 'sent']"
           routerLinkActive="nav-link-active"
           ariaCurrentWhenActive="page"
-          >Demandes envoyées</a
         >
+          Demandes envoyées
+
+          @if (unreadMessageState.counts(); as counts) {
+            @if (counts.sentRequests > 0) {
+              <span
+                class="unread-badge"
+                [attr.aria-label]="counts.sentRequests + ' messages non lus'"
+              >
+                {{ counts.sentRequests }}
+              </span>
+            }
+          }
+        </a>
         <a
           [routerLink]="['/service-requests', 'received']"
           routerLinkActive="nav-link-active"
           ariaCurrentWhenActive="page"
-          >Demandes reçues</a
-        >
+          >Demandes reçues
+
+          @if (unreadMessageState.counts(); as counts) {
+            @if (counts.receivedRequests > 0) {
+              <span
+                class="unread-badge"
+                [attr.aria-label]="counts.receivedRequests + ' messages non lus'"
+              >
+                {{ counts.receivedRequests }}
+              </span>
+            }
+          }
+        </a>
         <button type="button" (click)="onLogout()">Se déconnecter</button>
       } @else {
         <a [routerLink]="['/login']" routerLinkActive="nav-link-active" ariaCurrentWhenActive="page"

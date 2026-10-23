@@ -8,20 +8,36 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { routes } from './app.routes';
 import { ServiceRequest, ServiceRequestStatus } from './models/service-request.model';
 import { ServicePricingType } from './models/service-offering.model';
+import { unreadMessageState } from './service-requests/services/unread-message-store';
+import type { ServiceRequestUnreadMessageCounts } from './models/service-request-unread-message-counts.model';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { authInterceptor } from './auth/interceptors/auth-interceptor';
 
 describe('App', () => {
+  const unreadStoreStub = {
+    reset: vi.fn(),
+    refresh: vi.fn(),
+    counts: signal<ServiceRequestUnreadMessageCounts | null>(null),
+  };
   const authSessionStub = {
     currentUser: signal<CurrentUserResponse | null>(null),
     logout: vi.fn(),
   };
 
   beforeEach(async () => {
+    unreadStoreStub.counts.set(null);
+    unreadStoreStub.reset.mockReset().mockImplementation(() => unreadStoreStub.counts.set(null));
+    unreadStoreStub.refresh.mockReset();
     authSessionStub.currentUser.set(null);
     authSessionStub.logout.mockReset();
 
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideRouter([]), { provide: AuthSession, useValue: authSessionStub }],
+      providers: [
+        provideRouter([]),
+        { provide: AuthSession, useValue: authSessionStub },
+        { provide: unreadMessageState, useValue: unreadStoreStub },
+      ],
     }).compileComponents();
     vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
   });
@@ -133,6 +149,11 @@ describe('App', () => {
 });
 
 describe('App request navigation', () => {
+  const unreadStoreStub = {
+    reset: vi.fn(),
+    refresh: vi.fn(),
+    counts: signal<ServiceRequestUnreadMessageCounts | null>(null),
+  };
   const user: CurrentUserResponse = {
     id: 8,
     firstName: 'Alice',
@@ -191,6 +212,9 @@ describe('App request navigation', () => {
   }
 
   beforeEach(async () => {
+    unreadStoreStub.counts.set(null);
+    unreadStoreStub.reset.mockReset().mockImplementation(() => unreadStoreStub.counts.set(null));
+    unreadStoreStub.refresh.mockReset();
     authSessionStub.currentUser.set(user);
     authSessionStub.isAuthenticated.set(true);
     authSessionStub.isLoading.set(false);
@@ -206,6 +230,7 @@ describe('App request navigation', () => {
         provideRouter(routes),
         provideHttpClientTesting(),
         { provide: AuthSession, useValue: authSessionStub },
+        { provide: unreadMessageState, useValue: unreadStoreStub },
       ],
     }).compileComponents();
     router = TestBed.inject(Router);
@@ -348,5 +373,295 @@ describe('App request navigation', () => {
     expect(element().querySelector('main .service-request')).toBeNull();
     expect(element().textContent).not.toContain(sentRequest.message);
     expect(router.url).toBe('/login');
+  });
+});
+
+describe('App unread message session synchronization', () => {
+  const url = 'http://localhost:3000/service-requests/messages/unread-counts';
+  const userA: CurrentUserResponse = {
+    id: 8,
+    firstName: 'Alice',
+    lastName: 'Martin',
+    email: 'alice@example.com',
+  };
+  const userB: CurrentUserResponse = {
+    id: 9,
+    firstName: 'Bruno',
+    lastName: 'Leroy',
+    email: 'bruno@example.com',
+  };
+  const authSessionStub = {
+    currentUser: signal<CurrentUserResponse | null>(null),
+    accessToken: signal<string | null>(null),
+    logout: vi.fn(),
+  };
+  let fixture: ComponentFixture<App>;
+  let httpTesting: HttpTestingController;
+  let countsStore: InstanceType<typeof unreadMessageState>;
+
+  function signIn(user = userA, token = 'token-a') {
+    authSessionStub.accessToken.set(token);
+    authSessionStub.currentUser.set(user);
+    fixture.detectChanges();
+    return httpTesting.expectOne(url);
+  }
+
+  beforeEach(async () => {
+    authSessionStub.currentUser.set(null);
+    authSessionStub.accessToken.set(null);
+    authSessionStub.logout.mockReset().mockImplementation(() => {
+      authSessionStub.currentUser.set(null);
+      authSessionStub.accessToken.set(null);
+    });
+    await TestBed.configureTestingModule({
+      imports: [App],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(withInterceptors([authInterceptor])),
+        provideHttpClientTesting(),
+        { provide: AuthSession, useValue: authSessionStub },
+      ],
+    }).compileComponents();
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    httpTesting = TestBed.inject(HttpTestingController);
+    countsStore = TestBed.inject(unreadMessageState);
+    fixture = TestBed.createComponent(App);
+  });
+
+  afterEach(() => {
+    httpTesting.verify();
+    vi.restoreAllMocks();
+  });
+
+  it('should keep anonymous counts unknown without making an authenticated request', () => {
+    fixture.detectChanges();
+
+    expect(countsStore.counts()).toBeNull();
+    expect(countsStore.isLoading()).toBe(false);
+    expect(countsStore.errorMessage()).toBeNull();
+    httpTesting.expectNone(url);
+  });
+
+  it('should load counts once when a user signs in and share the result with the app', () => {
+    fixture.detectChanges();
+
+    const pending = signIn();
+
+    expect(pending.request.method).toBe('GET');
+    expect(pending.request.headers.get('Authorization')).toBe('Bearer token-a');
+    expect(pending.request.params.keys()).toEqual([]);
+    expect(countsStore.counts()).toBeNull();
+    expect(countsStore.isLoading()).toBe(true);
+    const counts = { sentRequests: 2, receivedRequests: 3, total: 5 };
+    pending.flush(counts);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.unreadMessageState).toBe(countsStore);
+    expect(countsStore.counts()).toEqual(counts);
+    expect(countsStore.isLoading()).toBe(false);
+    httpTesting.expectNone(url);
+  });
+
+  it('should cancel the pending counts request and reset state after clicking logout', () => {
+    const pending = signIn();
+
+    fixture.nativeElement.querySelector('nav button').click();
+    fixture.detectChanges();
+
+    expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
+    expect(pending.cancelled).toBe(true);
+    expect(countsStore.counts()).toBeNull();
+    expect(countsStore.isLoading()).toBe(false);
+    expect(countsStore.errorMessage()).toBeNull();
+    expect(fixture.nativeElement.querySelector('.session-user')).toBeNull();
+    expect(TestBed.inject(Router).navigate).toHaveBeenCalledExactlyOnceWith(['/login']);
+    httpTesting.expectNone(url);
+  });
+
+  it('should cancel an old account request and load the new account without retaining old counts', () => {
+    const oldPending = signIn();
+
+    const newPending = signIn(userB, 'token-b');
+
+    expect(oldPending.cancelled).toBe(true);
+    expect(newPending.request.headers.get('Authorization')).toBe('Bearer token-b');
+    expect(countsStore.counts()).toBeNull();
+    expect(countsStore.isLoading()).toBe(true);
+    const counts = { sentRequests: 0, receivedRequests: 1, total: 1 };
+    newPending.flush(counts);
+    fixture.detectChanges();
+    expect(countsStore.counts()).toEqual(counts);
+    expect(fixture.nativeElement.querySelector('.session-user').textContent).toContain(
+      'Bruno Leroy',
+    );
+    httpTesting.expectNone(url);
+  });
+
+  it('should preserve updated counts without restarting the session effect on a manual refresh', () => {
+    signIn().flush({ sentRequests: 2, receivedRequests: 3, total: 5 });
+    fixture.detectChanges();
+
+    countsStore.refresh();
+    const pending = httpTesting.expectOne(url);
+    pending.flush({ sentRequests: 0, receivedRequests: 1, total: 1 });
+    fixture.detectChanges();
+    fixture.detectChanges();
+
+    expect(countsStore.counts()).toEqual({ sentRequests: 0, receivedRequests: 1, total: 1 });
+    expect(countsStore.isLoading()).toBe(false);
+    httpTesting.expectNone(url);
+  });
+
+  it('should not track the interceptor token read as a session effect dependency', () => {
+    const counts = { sentRequests: 2, receivedRequests: 3, total: 5 };
+    signIn().flush(counts);
+    fixture.detectChanges();
+
+    authSessionStub.accessToken.set('replacement-token');
+    fixture.detectChanges();
+
+    expect(countsStore.counts()).toEqual(counts);
+    httpTesting.expectNone(url);
+  });
+
+  it('should reset counts after an interceptor-triggered logout on 401 without retrying', () => {
+    const pending = signIn();
+
+    pending.flush({ message: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
+    fixture.detectChanges();
+
+    expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
+    expect(authSessionStub.currentUser()).toBeNull();
+    expect(countsStore.counts()).toBeNull();
+    expect(countsStore.isLoading()).toBe(false);
+    expect(countsStore.errorMessage()).toBeNull();
+    httpTesting.expectNone(url);
+  });
+
+  it('should keep the authenticated session and allow manual retry after a server failure', () => {
+    signIn().flush(
+      { message: 'Server failure' },
+      { status: 500, statusText: 'Internal Server Error' },
+    );
+    fixture.detectChanges();
+
+    expect(authSessionStub.currentUser()).toEqual(userA);
+    expect(authSessionStub.logout).not.toHaveBeenCalled();
+    expect(countsStore.errorMessage()).toBe('Impossible de charger les compteurs de messages.');
+    expect(countsStore.counts()).toBeNull();
+    httpTesting.expectNone(url);
+    countsStore.refresh();
+    httpTesting.expectOne(url).flush({ sentRequests: 0, receivedRequests: 0, total: 0 });
+    fixture.detectChanges();
+    expect(countsStore.counts()).toEqual({ sentRequests: 0, receivedRequests: 0, total: 0 });
+    expect(countsStore.errorMessage()).toBeNull();
+    httpTesting.expectNone(url);
+  });
+
+  describe('unread badges in the header', () => {
+    function badge(direction: 'sent' | 'received') {
+      return (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+        `nav a[href="/service-requests/${direction}"] .unread-badge`,
+      );
+    }
+
+    it('should hide badges while the initial counts are unknown', () => {
+      const pending = signIn();
+
+      expect(countsStore.isLoading()).toBe(true);
+      expect(badge('sent')).toBeNull();
+      expect(badge('received')).toBeNull();
+      pending.flush({ sentRequests: 0, receivedRequests: 0, total: 0 });
+    });
+
+    it.each([
+      { sentRequests: 0, receivedRequests: 0, total: 0 },
+      { sentRequests: 2, receivedRequests: 0, total: 2 },
+      { sentRequests: 0, receivedRequests: 3, total: 3 },
+    ])(
+      'should show only positive counters for sent=$sentRequests and received=$receivedRequests',
+      (counts) => {
+        signIn().flush(counts);
+        fixture.detectChanges();
+
+        for (const [direction, count] of [
+          ['sent', counts.sentRequests],
+          ['received', counts.receivedRequests],
+        ] as const) {
+          if (count === 0) {
+            expect(badge(direction)).toBeNull();
+          } else {
+            expect(badge(direction)?.textContent?.trim()).toBe(String(count));
+            expect(badge(direction)?.getAttribute('aria-label')).toBe(`${count} messages non lus`);
+          }
+        }
+        httpTesting.expectNone(url);
+      },
+    );
+
+    it('should display each count beside its request link with a description for assistive technology', () => {
+      signIn().flush({ sentRequests: 12, receivedRequests: 103, total: 115 });
+      fixture.detectChanges();
+
+      expect(badge('sent')?.textContent?.trim()).toBe('12');
+      expect(badge('sent')?.getAttribute('aria-label')).toBe('12 messages non lus');
+      expect(badge('received')?.textContent?.trim()).toBe('103');
+      expect(badge('received')?.getAttribute('aria-label')).toBe('103 messages non lus');
+      expect(badge('sent')?.parentElement?.textContent).toContain('Demandes envoyées');
+      expect(badge('received')?.parentElement?.textContent).toContain('Demandes reçues');
+      expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(2);
+      httpTesting.expectNone(url);
+    });
+
+    it('should update badges from shared counts and remove a counter when it reaches zero', () => {
+      signIn().flush({ sentRequests: 2, receivedRequests: 3, total: 5 });
+      fixture.detectChanges();
+      expect(badge('sent')?.textContent?.trim()).toBe('2');
+      expect(badge('received')?.textContent?.trim()).toBe('3');
+
+      countsStore.refresh();
+      const pending = httpTesting.expectOne(url);
+      fixture.detectChanges();
+      expect(badge('sent')?.textContent?.trim()).toBe('2');
+      expect(badge('received')?.textContent?.trim()).toBe('3');
+
+      pending.flush({ sentRequests: 0, receivedRequests: 1, total: 1 });
+      fixture.detectChanges();
+      expect(badge('sent')).toBeNull();
+      expect(badge('received')?.textContent?.trim()).toBe('1');
+      httpTesting.expectNone(url);
+    });
+
+    it('should remove loaded badges when the user logs out', () => {
+      signIn().flush({ sentRequests: 2, receivedRequests: 3, total: 5 });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(2);
+
+      fixture.nativeElement.querySelector('nav button').click();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(0);
+      expect(countsStore.counts()).toBeNull();
+      httpTesting.expectNone(url);
+    });
+
+    it('should clear the previous account badges before displaying the new account counts', () => {
+      signIn().flush({ sentRequests: 2, receivedRequests: 3, total: 5 });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(2);
+
+      const pending = signIn(userB, 'token-b');
+      expect(badge('sent')).toBeNull();
+      expect(badge('received')).toBeNull();
+      expect(countsStore.counts()).toBeNull();
+
+      pending.flush({ sentRequests: 0, receivedRequests: 4, total: 4 });
+      fixture.detectChanges();
+      expect(badge('sent')).toBeNull();
+      expect(badge('received')?.textContent?.trim()).toBe('4');
+      expect(fixture.nativeElement.querySelector('.session-user').textContent).toContain(
+        'Bruno Leroy',
+      );
+      httpTesting.expectNone(url);
+    });
   });
 });

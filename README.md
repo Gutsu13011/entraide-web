@@ -36,7 +36,7 @@ service.
 - Recipient actions to mark requests as read, accept or reject them, and complete accepted requests, with pending and error states
 - Request participants, messages, historical offering titles and pricing, status and dates displayed in cards
 - Inline conversations on sent and received request cards, with reply submission and read receipts
-- Signed-in account links to request lists in the header
+- Signed-in account links to request lists in the header, with shared unread-message badges
 - Manual logout opens login and closes the current page, including private request lists
 - HTTP integration with the NestJS backend
 - Loading, empty and error states
@@ -312,8 +312,27 @@ draft.
 History and read dates are fetched when opening the discussion; there is no
 polling or real-time synchronization. The read PATCH returns no content and
 does not replace locally loaded read dates, so reopening fetches the latest
-server values. In-app unread counters, real-time notifications and delayed
-email reminders are planned.
+server values. Real-time notifications and delayed email reminders are planned.
+
+### Unread-message counters
+
+While signed in, the request links in the header display green badges for
+positive unread-message counts. Each count represents received replies in
+that request category, not the number of requests. Own replies and the initial
+request text are excluded. A zero count has no badge.
+
+A shared NgRx SignalStore loads counts from
+`GET /service-requests/messages/unread-counts` when the authenticated user
+changes. The API derives the account from the bearer token. Logout or switching
+accounts clears the previous counts and cancels any pending count request.
+
+After the conversation's read PATCH succeeds, it refreshes the same store;
+the header updates from the returned counts. Failed or cancelled read updates
+do not refresh counts. A count refresh failure does not hide the conversation
+or discard its draft. Counts are unknown until loaded or after a loading
+failure, so no badges appear in those states; a refresh retains the previous
+counts while it is pending. There is currently no polling or real-time update
+when another participant sends a new reply.
 
 ## Reviews from completed requests
 
@@ -387,6 +406,5 @@ creates a production build.
 - A session expiry notification and return to login
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation
-- Unread-message counters
 - Real-time message notifications
 - Delayed email reminders for unread messages
