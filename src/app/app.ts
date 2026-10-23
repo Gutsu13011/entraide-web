@@ -2,6 +2,7 @@ import { Component, effect, inject, untracked } from '@angular/core';
 import { RouterLink, RouterOutlet, Router, RouterLinkActive } from '@angular/router';
 import { AuthSession } from './auth/services/auth-session';
 import { unreadMessageState } from './service-requests/services/unread-message-store';
+import { interval } from 'rxjs';
 
 @Component({
   selector: 'app-root',
@@ -11,15 +12,27 @@ import { unreadMessageState } from './service-requests/services/unread-message-s
 })
 export class App {
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
       const currentUser = this.authSession.currentUser();
 
       untracked(() => {
         this.unreadMessageState.reset();
 
-        if (currentUser !== null) {
-          this.unreadMessageState.refresh();
+        if (currentUser === null) {
+          return;
         }
+
+        this.unreadMessageState.refresh();
+
+        const polling = interval(30_000).subscribe(() => {
+          if (!this.unreadMessageState.isLoading()) {
+            this.unreadMessageState.refresh();
+          }
+        });
+
+        onCleanup(() => {
+          polling.unsubscribe();
+        });
       });
     });
   }

@@ -17,6 +17,7 @@ describe('App', () => {
   const unreadStoreStub = {
     reset: vi.fn(),
     refresh: vi.fn(),
+    isLoading: signal(false),
     counts: signal<ServiceRequestUnreadMessageCounts | null>(null),
   };
   const authSessionStub = {
@@ -26,6 +27,7 @@ describe('App', () => {
 
   beforeEach(async () => {
     unreadStoreStub.counts.set(null);
+    unreadStoreStub.isLoading.set(false);
     unreadStoreStub.reset.mockReset().mockImplementation(() => unreadStoreStub.counts.set(null));
     unreadStoreStub.refresh.mockReset();
     authSessionStub.currentUser.set(null);
@@ -152,6 +154,7 @@ describe('App request navigation', () => {
   const unreadStoreStub = {
     reset: vi.fn(),
     refresh: vi.fn(),
+    isLoading: signal(false),
     counts: signal<ServiceRequestUnreadMessageCounts | null>(null),
   };
   const user: CurrentUserResponse = {
@@ -213,6 +216,7 @@ describe('App request navigation', () => {
 
   beforeEach(async () => {
     unreadStoreStub.counts.set(null);
+    unreadStoreStub.isLoading.set(false);
     unreadStoreStub.reset.mockReset().mockImplementation(() => unreadStoreStub.counts.set(null));
     unreadStoreStub.refresh.mockReset();
     authSessionStub.currentUser.set(user);
@@ -555,6 +559,200 @@ describe('App unread message session synchronization', () => {
     expect(countsStore.counts()).toEqual({ sentRequests: 0, receivedRequests: 0, total: 0 });
     expect(countsStore.errorMessage()).toBeNull();
     httpTesting.expectNone(url);
+  });
+
+  describe('unread count polling', () => {
+    const emptyCounts = { sentRequests: 0, receivedRequests: 0, total: 0 };
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    });
+
+    afterEach(() => {
+      fixture.destroy();
+      vi.useRealTimers();
+    });
+
+    it('should not start a polling request for anonymous visitors', () => {
+      fixture.detectChanges();
+
+      vi.advanceTimersByTime(90_000);
+      fixture.detectChanges();
+
+      httpTesting.expectNone(url);
+      expect(countsStore.counts()).toBeNull();
+    });
+
+    it('should refresh at each 30-second boundary and update the header badges from the response', () => {
+      signIn().flush(emptyCounts);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(0);
+
+      vi.advanceTimersByTime(29_999);
+      httpTesting.expectNone(url);
+      vi.advanceTimersByTime(1);
+      const firstPoll = httpTesting.expectOne(url);
+      expect(firstPoll.request.method).toBe('GET');
+      expect(firstPoll.request.headers.get('Authorization')).toBe('Bearer token-a');
+      firstPoll.flush({ sentRequests: 2, receivedRequests: 1, total: 3 });
+      fixture.detectChanges();
+      expect(countsStore.counts()).toEqual({ sentRequests: 2, receivedRequests: 1, total: 3 });
+      expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(2);
+
+      vi.advanceTimersByTime(29_999);
+      httpTesting.expectNone(url);
+      vi.advanceTimersByTime(1);
+      httpTesting.expectOne(url).flush(emptyCounts);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(0);
+      httpTesting.expectNone(url);
+    });
+
+    it('should leave a slow initial request pending and resume polling after it finishes', () => {
+      const initial = signIn();
+
+      vi.advanceTimersByTime(60_000);
+      fixture.detectChanges();
+
+      expect(initial.cancelled).toBe(false);
+      expect(countsStore.isLoading()).toBe(true);
+      httpTesting.expectNone(url);
+      initial.flush(emptyCounts);
+      fixture.detectChanges();
+      vi.advanceTimersByTime(30_000);
+      httpTesting.expectOne(url).flush(emptyCounts);
+    });
+
+    it('should skip polling ticks while a periodic request is pending without cancelling it', () => {
+      signIn().flush(emptyCounts);
+      fixture.detectChanges();
+      vi.advanceTimersByTime(30_000);
+      const pendingPoll = httpTesting.expectOne(url);
+
+      vi.advanceTimersByTime(90_000);
+      fixture.detectChanges();
+
+      expect(pendingPoll.cancelled).toBe(false);
+      httpTesting.expectNone(url);
+      pendingPoll.flush({ sentRequests: 1, receivedRequests: 0, total: 1 });
+      fixture.detectChanges();
+      vi.advanceTimersByTime(30_000);
+      httpTesting.expectOne(url).flush(emptyCounts);
+    });
+
+    it('should retry at the next tick after a server error and keep the session authenticated', () => {
+      signIn().flush(emptyCounts);
+      fixture.detectChanges();
+      vi.advanceTimersByTime(30_000);
+      httpTesting
+        .expectOne(url)
+        .flush({ message: 'Server failure' }, { status: 500, statusText: 'Internal Server Error' });
+      fixture.detectChanges();
+      expect(countsStore.errorMessage()).toBe('Impossible de charger les compteurs de messages.');
+      expect(authSessionStub.currentUser()).toEqual(userA);
+      expect(authSessionStub.logout).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(30_000);
+      const retry = httpTesting.expectOne(url);
+      expect(countsStore.errorMessage()).toBeNull();
+      retry.flush({ sentRequests: 0, receivedRequests: 1, total: 1 });
+      fixture.detectChanges();
+      expect(countsStore.counts()).toEqual({ sentRequests: 0, receivedRequests: 1, total: 1 });
+      httpTesting.expectNone(url);
+    });
+
+    it('should keep one polling schedule and wait for a manual refresh that crosses a tick', () => {
+      signIn().flush(emptyCounts);
+      fixture.detectChanges();
+      vi.advanceTimersByTime(10_000);
+      countsStore.refresh();
+      const manualRefresh = httpTesting.expectOne(url);
+
+      vi.advanceTimersByTime(20_000);
+      fixture.detectChanges();
+
+      expect(manualRefresh.cancelled).toBe(false);
+      httpTesting.expectNone(url);
+      manualRefresh.flush({ sentRequests: 2, receivedRequests: 0, total: 2 });
+      fixture.detectChanges();
+      vi.advanceTimersByTime(29_999);
+      httpTesting.expectNone(url);
+      vi.advanceTimersByTime(1);
+      httpTesting.expectOne(url).flush(emptyCounts);
+      fixture.detectChanges();
+      httpTesting.expectNone(url);
+    });
+
+    it('should cancel a pending poll and stop subsequent ticks after manual logout', () => {
+      signIn().flush(emptyCounts);
+      fixture.detectChanges();
+      vi.advanceTimersByTime(30_000);
+      const pendingPoll = httpTesting.expectOne(url);
+
+      fixture.nativeElement.querySelector('nav button').click();
+      fixture.detectChanges();
+      vi.advanceTimersByTime(90_000);
+      fixture.detectChanges();
+
+      expect(pendingPoll.cancelled).toBe(true);
+      expect(countsStore.counts()).toBeNull();
+      expect(countsStore.isLoading()).toBe(false);
+      expect(authSessionStub.currentUser()).toBeNull();
+      httpTesting.expectNone(url);
+    });
+
+    it('should replace the previous account schedule with a fresh one using the new token', () => {
+      signIn().flush(emptyCounts);
+      fixture.detectChanges();
+      vi.advanceTimersByTime(10_000);
+      signIn(userB, 'token-b').flush(emptyCounts);
+      fixture.detectChanges();
+
+      vi.advanceTimersByTime(20_000);
+      httpTesting.expectNone(url);
+      vi.advanceTimersByTime(9_999);
+      httpTesting.expectNone(url);
+      vi.advanceTimersByTime(1);
+      const newPoll = httpTesting.expectOne(url);
+      expect(newPoll.request.headers.get('Authorization')).toBe('Bearer token-b');
+      newPoll.flush({ sentRequests: 0, receivedRequests: 4, total: 4 });
+      fixture.detectChanges();
+      vi.advanceTimersByTime(30_000);
+      httpTesting.expectOne(url).flush(emptyCounts);
+      expect(authSessionStub.currentUser()).toEqual(userB);
+      httpTesting.expectNone(url);
+    });
+
+    it('should stop polling after an expired token triggers interceptor logout', () => {
+      signIn().flush(emptyCounts);
+      fixture.detectChanges();
+      vi.advanceTimersByTime(30_000);
+
+      httpTesting
+        .expectOne(url)
+        .flush({ message: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
+      fixture.detectChanges();
+      vi.advanceTimersByTime(90_000);
+      fixture.detectChanges();
+
+      expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
+      expect(authSessionStub.currentUser()).toBeNull();
+      expect(countsStore.counts()).toBeNull();
+      expect(countsStore.errorMessage()).toBeNull();
+      httpTesting.expectNone(url);
+    });
+
+    it('should stop its timer when App is destroyed even while the account remains signed in', () => {
+      signIn().flush(emptyCounts);
+      fixture.detectChanges();
+      vi.advanceTimersByTime(29_999);
+
+      fixture.destroy();
+      vi.advanceTimersByTime(90_000);
+
+      expect(authSessionStub.currentUser()).toEqual(userA);
+      httpTesting.expectNone(url);
+    });
   });
 
   describe('unread badges in the header', () => {
