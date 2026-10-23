@@ -333,17 +333,22 @@ or discard its draft. Counts are unknown until loaded or after a loading
 failure, so no badges appear in those states; a refresh retains the previous
 counts while it is pending.
 
-While signed in, App also refreshes counts every 30 seconds. A tick is skipped
-if a count request is still pending, allowing slow responses to finish. Manual
+While signed in, App also refreshes counts every 30 seconds when the document
+is visible. Ticks are skipped while the document is hidden or a count request
+is still pending, allowing slow responses to finish. Manual
 refreshes after reading keep the same polling schedule. A server error allows
 another attempt at the next tick; a 401 clears the session through the
 interceptor and stops polling. Logout, account changes and App destruction
 stop the previous timer. A newly signed-in account loads its own counts
 immediately and starts a new timer.
 
+The initial count load still runs when signing in on a hidden page. Hiding
+the document does not cancel an in-flight request or clear loaded badges.
+Returning to the page resumes requests on the existing timer's next tick,
+without an immediate refresh or a new timer.
+
 Polling updates only header counts; it does not reload conversation history
-or read dates. There is no real-time push or background-tab pause yet, and
-browser scheduling can delay ticks.
+or read dates. There is no real-time push, and browser scheduling can delay ticks.
 
 ## Reviews from completed requests
 

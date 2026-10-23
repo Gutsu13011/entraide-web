@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { App } from './app';
-import { signal } from '@angular/core';
+import { DOCUMENT, signal } from '@angular/core';
 import { CurrentUserResponse } from './models/auth.model';
 import { AuthSession } from './auth/services/auth-session';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -563,14 +563,130 @@ describe('App unread message session synchronization', () => {
 
   describe('unread count polling', () => {
     const emptyCounts = { sentRequests: 0, receivedRequests: 0, total: 0 };
+    let visibility: DocumentVisibilityState;
 
     beforeEach(() => {
       vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      visibility = 'visible';
+      vi.spyOn(TestBed.inject(DOCUMENT), 'visibilityState', 'get').mockImplementation(
+        () => visibility,
+      );
     });
 
     afterEach(() => {
       fixture.destroy();
       vi.useRealTimers();
+    });
+
+    describe('page visibility', () => {
+      it('should still load initial counts when signed in on a hidden page and skip periodic requests', () => {
+        visibility = 'hidden';
+
+        signIn().flush({ sentRequests: 2, receivedRequests: 1, total: 3 });
+        fixture.detectChanges();
+        vi.advanceTimersByTime(90_000);
+        fixture.detectChanges();
+
+        expect(countsStore.counts()).toEqual({ sentRequests: 2, receivedRequests: 1, total: 3 });
+        expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(2);
+        expect(countsStore.isLoading()).toBe(false);
+        httpTesting.expectNone(url);
+      });
+
+      it('should preserve loaded counts and skip every tick while the page is hidden', () => {
+        signIn().flush({ sentRequests: 2, receivedRequests: 1, total: 3 });
+        fixture.detectChanges();
+        vi.advanceTimersByTime(10_000);
+
+        visibility = 'hidden';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        vi.advanceTimersByTime(80_000);
+        fixture.detectChanges();
+
+        expect(countsStore.counts()).toEqual({ sentRequests: 2, receivedRequests: 1, total: 3 });
+        expect(countsStore.errorMessage()).toBeNull();
+        expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(2);
+        httpTesting.expectNone(url);
+      });
+
+      it('should resume on the original next tick after becoming visible without refreshing immediately', () => {
+        signIn().flush(emptyCounts);
+        fixture.detectChanges();
+        visibility = 'hidden';
+        vi.advanceTimersByTime(50_000);
+        httpTesting.expectNone(url);
+
+        visibility = 'visible';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        fixture.detectChanges();
+        httpTesting.expectNone(url);
+        vi.advanceTimersByTime(9_999);
+        httpTesting.expectNone(url);
+        vi.advanceTimersByTime(1);
+        httpTesting.expectOne(url).flush({ sentRequests: 0, receivedRequests: 1, total: 1 });
+        fixture.detectChanges();
+        expect(countsStore.counts()).toEqual({ sentRequests: 0, receivedRequests: 1, total: 1 });
+        vi.advanceTimersByTime(30_000);
+        httpTesting.expectOne(url).flush(emptyCounts);
+        httpTesting.expectNone(url);
+      });
+
+      it('should allow an in-flight poll to finish after the page becomes hidden without starting another', () => {
+        signIn().flush(emptyCounts);
+        fixture.detectChanges();
+        vi.advanceTimersByTime(30_000);
+        const pending = httpTesting.expectOne(url);
+
+        visibility = 'hidden';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        vi.advanceTimersByTime(30_000);
+        expect(pending.cancelled).toBe(false);
+        httpTesting.expectNone(url);
+        pending.flush({ sentRequests: 1, receivedRequests: 0, total: 1 });
+        fixture.detectChanges();
+        expect(countsStore.isLoading()).toBe(false);
+        expect(countsStore.counts()).toEqual({ sentRequests: 1, receivedRequests: 0, total: 1 });
+        vi.advanceTimersByTime(30_000);
+        httpTesting.expectNone(url);
+      });
+
+      it('should wait for a pending refresh even after the page becomes visible again', () => {
+        signIn().flush(emptyCounts);
+        fixture.detectChanges();
+        vi.advanceTimersByTime(30_000);
+        const pending = httpTesting.expectOne(url);
+        visibility = 'hidden';
+        vi.advanceTimersByTime(30_000);
+
+        visibility = 'visible';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        vi.advanceTimersByTime(30_000);
+        expect(pending.cancelled).toBe(false);
+        httpTesting.expectNone(url);
+        pending.flush(emptyCounts);
+        fixture.detectChanges();
+        vi.advanceTimersByTime(30_000);
+        httpTesting.expectOne(url).flush(emptyCounts);
+      });
+
+      it('should not restart polling when the page becomes visible after logout while hidden', () => {
+        signIn().flush(emptyCounts);
+        fixture.detectChanges();
+        visibility = 'hidden';
+        vi.advanceTimersByTime(10_000);
+
+        fixture.nativeElement.querySelector('nav button').click();
+        fixture.detectChanges();
+        visibility = 'visible';
+        TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+        vi.advanceTimersByTime(90_000);
+        fixture.detectChanges();
+
+        expect(authSessionStub.currentUser()).toBeNull();
+        expect(countsStore.counts()).toBeNull();
+        expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(0);
+        httpTesting.expectNone(url);
+      });
     });
 
     it('should not start a polling request for anonymous visitors', () => {

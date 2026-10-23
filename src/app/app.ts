@@ -1,4 +1,4 @@
-import { Component, effect, inject, untracked } from '@angular/core';
+import { Component, DOCUMENT, effect, inject, untracked } from '@angular/core';
 import { RouterLink, RouterOutlet, Router, RouterLinkActive } from '@angular/router';
 import { AuthSession } from './auth/services/auth-session';
 import { unreadMessageState } from './service-requests/services/unread-message-store';
@@ -25,7 +25,7 @@ export class App {
         this.unreadMessageState.refresh();
 
         const polling = interval(30_000).subscribe(() => {
-          if (!this.unreadMessageState.isLoading()) {
+          if (!this.unreadMessageState.isLoading() && this.document.visibilityState === 'visible') {
             this.unreadMessageState.refresh();
           }
         });
@@ -38,6 +38,7 @@ export class App {
   }
 
   private readonly router = inject(Router);
+  private readonly document = inject(DOCUMENT);
 
   readonly authSession = inject(AuthSession);
   readonly unreadMessageState = inject(unreadMessageState);
