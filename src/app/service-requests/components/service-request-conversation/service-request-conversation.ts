@@ -2,6 +2,7 @@ import {
   afterNextRender,
   Component,
   DestroyRef,
+  DOCUMENT,
   inject,
   Injector,
   input,
@@ -10,7 +11,7 @@ import {
 } from '@angular/core';
 import { ServiceRequestMessage } from '../../../models/service-request-message.model';
 import { ServiceRequestStore } from '../../services/service-request-store';
-import { finalize } from 'rxjs';
+import { finalize, interval, Subject, takeUntil } from 'rxjs';
 import { DatePipe } from '@angular/common';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -29,6 +30,8 @@ export class ServiceRequestConversation implements OnInit {
   private readonly authSession = inject(AuthSession);
   private readonly injector = inject(Injector);
   private readonly unreadMessageState = inject(unreadMessageState);
+  private readonly document = inject(DOCUMENT);
+  private readonly messageLoadCancelled = new Subject<void>();
 
   readonly serviceRequestId = input.required<number>();
   readonly messages = signal<ServiceRequestMessage[]>([]);
@@ -43,15 +46,47 @@ export class ServiceRequestConversation implements OnInit {
     }),
   });
   readonly readError = signal<string | null>(null);
+  readonly isRefreshing = signal<boolean>(false);
+  readonly refreshError = signal<string | null>(null);
 
   ngOnInit(): void {
-    this.isLoading.set(true);
-    this.loadError.set(null);
+    this.loadMessages(true);
+
+    interval(10_000)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        if (
+          this.document.visibilityState === 'visible' &&
+          this.authSession.currentUser() !== null &&
+          this.loadError() === null
+        ) {
+          this.loadMessages(false);
+        }
+      });
+  }
+
+  private loadMessages(isInitialLoad: boolean): void {
+    if (this.isLoading() || this.isRefreshing() || this.isSending()) {
+      return;
+    }
+
+    if (isInitialLoad) {
+      this.isLoading.set(true);
+      this.loadError.set(null);
+    } else {
+      this.isRefreshing.set(true);
+      this.refreshError.set(null);
+    }
+
     this.serviceRequestStore
       .getMessages(this.serviceRequestId())
       .pipe(
         takeUntilDestroyed(this.destroyRef),
-        finalize(() => this.isLoading.set(false)),
+        takeUntil(this.messageLoadCancelled),
+        finalize(() => {
+          this.isLoading.set(false);
+          this.isRefreshing.set(false);
+        }),
       )
       .subscribe({
         next: (messages) => {
@@ -59,7 +94,13 @@ export class ServiceRequestConversation implements OnInit {
 
           afterNextRender(
             () => {
-              if (!this.isLoading() && this.loadError() === null) {
+              if (
+                this.document.visibilityState === 'visible' &&
+                !this.isLoading() &&
+                this.loadError() === null &&
+                !this.isRefreshing() &&
+                this.refreshError() === null
+              ) {
                 this.markReceivedMessagesAsRead(messages);
               }
             },
@@ -67,7 +108,13 @@ export class ServiceRequestConversation implements OnInit {
           );
         },
         error: () => {
-          this.loadError.set('Impossible de charger la conversation. Veuillez réessayer.');
+          if (isInitialLoad) {
+            this.loadError.set('Impossible de charger la conversation. Veuillez réessayer.');
+          } else {
+            this.refreshError.set(
+              'Impossible d’actualiser la conversation. Les messages affichés sont conservés.',
+            );
+          }
         },
       });
   }
@@ -81,6 +128,8 @@ export class ServiceRequestConversation implements OnInit {
       this.messageForm.markAllAsTouched();
       return;
     }
+
+    this.messageLoadCancelled.next();
 
     const message = this.messageForm.getRawValue();
 

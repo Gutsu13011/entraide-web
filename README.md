@@ -295,7 +295,7 @@ button is disabled while sending. Success appends the saved message and
 resets the draft; failure preserves the draft and history and allows retry.
 
 After Angular renders the loaded history, the component checks for unread
-messages written by the other participant. If any exist, it sends the highest
+messages written by the other participant only while the document is visible. If any exist, it sends the highest
 identifier in that loaded history as `upToMessageId` to
 `PATCH /service-requests/:id/messages/read`. The API marks only received,
 previously unread messages up to that boundary. This does not change the
@@ -309,10 +309,27 @@ trigger a read update after closure. Cancelling a send on the client does not
 undo a message the API may already have saved. Closing also discards the local
 draft.
 
-History and read dates are fetched when opening the discussion; there is no
-polling or real-time synchronization. The read PATCH returns no content and
-does not replace locally loaded read dates, so reopening fetches the latest
-server values. Real-time notifications and delayed email reminders are planned.
+History loads immediately on opening. While the discussion remains open,
+it refreshes every 10 seconds if the document is visible, the account is signed
+in and the initial load succeeded. Ticks skip an existing history load or reply
+submission. Background refreshes preserve the reply field, focus and draft;
+a failed refresh shows a separate alert without hiding loaded messages or the
+form, and the next eligible tick retries. An initial load failure still requires
+closing and reopening the discussion to retry.
+
+A valid reply submission cancels the pending history load before sending,
+preventing an older response from replacing the newly saved reply. Invalid
+submissions leave pending history loads active. Polling resumes after sending
+finishes, including after a failed send. Closing the discussion stops its timer
+and cancels any pending history load. Hiding the page skips future requests
+and read acknowledgements after rendering, while an in-flight history load can
+still finish. Returning to the page resumes history requests on the next tick.
+
+The read PATCH returns no content and does not replace locally loaded read
+dates; the next history refresh or reopening fetches the latest server values.
+Conversation history and header counters use separate polling intervals.
+There is no real-time push. Real-time notifications and delayed email reminders
+are planned.
 
 ### Unread-message counters
 

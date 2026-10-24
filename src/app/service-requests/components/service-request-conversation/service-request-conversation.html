@@ -6,6 +6,9 @@
   } @else if (loadError(); as message) {
     <p class="error-message" role="alert">{{ message }}</p>
   } @else {
+    @if (refreshError(); as message) {
+      <p class="error-message" role="alert">{{ message }}</p>
+    }
     <div class="conversation-messages">
       @if (readError(); as error) {
         <p class="error-message" role="alert">{{ error }}</p>

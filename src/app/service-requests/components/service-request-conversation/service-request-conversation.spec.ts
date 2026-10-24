@@ -2,6 +2,7 @@ import { DATE_PIPE_DEFAULT_OPTIONS } from '@angular/common';
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { DOCUMENT } from '@angular/core';
 import { finalize, of, Subject } from 'rxjs';
 import { ServiceRequestMessage } from '../../../models/service-request-message.model';
 import { ServiceRequestStore } from '../../services/service-request-store';
@@ -649,6 +650,376 @@ describe('ServiceRequestConversation', () => {
       expect(teardown).toHaveBeenCalledTimes(1);
       readResponse$.error(new HttpErrorResponse({ status: 500 }));
       expect(component.readError()).toBeNull();
+    });
+  });
+
+  describe('periodic history refresh', () => {
+    let visibility: DocumentVisibilityState;
+    const otherMessage: ServiceRequestMessage = {
+      ...firstMessage,
+      id: 102,
+      content: 'Oui, samedi matin me convient.',
+      createdAt: '2026-10-24T09:30:00.000Z',
+      authorUserId: 9,
+      author: { id: 9, firstName: 'Bruno', lastName: 'Leroy' },
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      visibility = 'visible';
+      vi.spyOn(TestBed.inject(DOCUMENT), 'visibilityState', 'get').mockImplementation(
+        () => visibility,
+      );
+      authSessionStub.currentUser.mockReturnValue({ id: 8 });
+    });
+
+    afterEach(() => {
+      fixture.destroy();
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    function loadInitial(messages: ServiceRequestMessage[] = [firstMessage]) {
+      fixture.detectChanges();
+      response$.next(messages);
+      response$.complete();
+      fixture.detectChanges();
+    }
+
+    function nextRefresh() {
+      const response = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValue(response);
+      vi.advanceTimersByTime(10_000);
+      return response;
+    }
+
+    it('should refresh after 10 seconds while keeping the same focused reply field and draft', () => {
+      loadInitial();
+      const textarea = element().querySelector<HTMLTextAreaElement>('textarea')!;
+      textarea.value = 'Mon brouillon en cours';
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      textarea.focus();
+      textarea.setSelectionRange(4, 12);
+      fixture.detectChanges();
+      const form = element().querySelector('form');
+      const initialArticle = element().querySelector('.conversation-message');
+      const refresh$ = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValue(refresh$);
+      vi.advanceTimersByTime(9_999);
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(1);
+      fixture.detectChanges();
+
+      expect(storeStub.getMessages).toHaveBeenLastCalledWith(42);
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(component.isLoading()).toBe(false);
+      expect(component.isRefreshing()).toBe(true);
+      expect(element().querySelector('[role="status"]')).toBeNull();
+      expect(element().querySelector('form')).toBe(form);
+      expect(element().querySelector('textarea')).toBe(textarea);
+      expect(TestBed.inject(DOCUMENT).activeElement).toBe(textarea);
+      const readAt = '2026-10-24T09:35:00.000Z';
+      refresh$.next([
+        { ...firstMessage, readAt },
+        { ...otherMessage, readAt },
+      ]);
+      refresh$.complete();
+      fixture.detectChanges();
+      expect(component.isRefreshing()).toBe(false);
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(2);
+      expect(element().querySelector('.conversation-message')).toBe(initialArticle);
+      expect(element().querySelectorAll('.message-read-check')).toHaveLength(2);
+      expect(element().querySelector('textarea')).toBe(textarea);
+      expect(textarea.value).toBe('Mon brouillon en cours');
+      expect(textarea.selectionStart).toBe(4);
+      expect(textarea.selectionEnd).toBe(12);
+      expect(TestBed.inject(DOCUMENT).activeElement).toBe(textarea);
+      expect(component.messageForm.dirty).toBe(true);
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+    });
+
+    it('should wait for a slow initial load instead of starting background loads', () => {
+      fixture.detectChanges();
+
+      vi.advanceTimersByTime(30_000);
+
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+      expect(component.isLoading()).toBe(true);
+      expect(component.isRefreshing()).toBe(false);
+      response$.next([firstMessage]);
+      response$.complete();
+      fixture.detectChanges();
+      storeStub.getMessages.mockReturnValue(of([firstMessage]));
+      vi.advanceTimersByTime(10_000);
+      fixture.detectChanges();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+    });
+
+    it('should skip ticks while a background load is pending and accept the following tick after completion', () => {
+      loadInitial();
+      const refresh$ = new Subject<ServiceRequestMessage[]>();
+      const teardown = vi.fn();
+      storeStub.getMessages.mockReturnValue(refresh$.pipe(finalize(teardown)));
+      vi.advanceTimersByTime(10_000);
+
+      vi.advanceTimersByTime(30_000);
+
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(teardown).not.toHaveBeenCalled();
+      expect(component.isRefreshing()).toBe(true);
+      refresh$.next([firstMessage]);
+      refresh$.complete();
+      expect(teardown).toHaveBeenCalledTimes(1);
+      storeStub.getMessages.mockReturnValue(of([firstMessage]));
+      vi.advanceTimersByTime(10_000);
+      fixture.detectChanges();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+    });
+
+    it('should skip hidden-page ticks and resume on the next tick after visibility returns', () => {
+      loadInitial();
+      visibility = 'hidden';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+
+      vi.advanceTimersByTime(30_000);
+
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+      visibility = 'visible';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+      storeStub.getMessages.mockReturnValue(of([firstMessage]));
+      vi.advanceTimersByTime(10_000);
+      fixture.detectChanges();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+    });
+
+    it('should not issue further history requests when the session becomes anonymous', () => {
+      loadInitial();
+      authSessionStub.currentUser.mockReturnValue(null);
+
+      vi.advanceTimersByTime(30_000);
+
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+    });
+
+    it('should retain the initial loading error without automatically retrying in the background', () => {
+      fixture.detectChanges();
+      response$.error(new HttpErrorResponse({ status: 500 }));
+      fixture.detectChanges();
+
+      vi.advanceTimersByTime(30_000);
+
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+      expect(component.loadError()).toBe(
+        'Impossible de charger la conversation. Veuillez réessayer.',
+      );
+      expect(component.refreshError()).toBeNull();
+      expect(element().querySelector('form')).toBeNull();
+    });
+
+    it('should preserve history and the draft after a refresh error and clear the alert on the next attempt', () => {
+      loadInitial();
+      component.messageForm.controls.content.setValue('Brouillon conservé');
+      const form = element().querySelector('form');
+      const history = component.messages();
+      const refresh$ = nextRefresh();
+
+      refresh$.error(new HttpErrorResponse({ status: 500 }));
+      fixture.detectChanges();
+
+      expect(component.loadError()).toBeNull();
+      expect(component.isRefreshing()).toBe(false);
+      expect(component.messages()).toBe(history);
+      expect(element().querySelector('form')).toBe(form);
+      expect(element().querySelector('textarea')?.value).toBe('Brouillon conservé');
+      expect(element().querySelector('[role="alert"]')?.textContent).toContain(
+        'Impossible d’actualiser la conversation. Les messages affichés sont conservés.',
+      );
+      const retry$ = nextRefresh();
+      fixture.detectChanges();
+      expect(component.refreshError()).toBeNull();
+      expect(element().querySelector('[role="alert"]')).toBeNull();
+      expect(component.isRefreshing()).toBe(true);
+      retry$.next([firstMessage]);
+      retry$.complete();
+      fixture.detectChanges();
+      expect(component.isRefreshing()).toBe(false);
+      expect(component.messageForm.controls.content.value).toBe('Brouillon conservé');
+    });
+
+    it('should populate an initially empty conversation at a later polling tick', () => {
+      loadInitial([]);
+      expect(element().textContent).toContain('Aucun message dans cette discussion');
+      const refresh$ = nextRefresh();
+
+      refresh$.next([firstMessage]);
+      refresh$.complete();
+      fixture.detectChanges();
+
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(1);
+      expect(element().textContent).not.toContain('Aucun message dans cette discussion');
+      expect(element().querySelector('form')).not.toBeNull();
+    });
+
+    it('should mark new received replies only after refreshed history is rendered and refresh counts after acknowledgement', () => {
+      loadInitial();
+      const read$ = new Subject<void>();
+      storeStub.markMessagesAsRead.mockReturnValue(read$);
+      const refresh$ = nextRefresh();
+      refresh$.next([firstMessage, otherMessage]);
+      refresh$.complete();
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+
+      fixture.detectChanges();
+
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(2);
+      expect(storeStub.markMessagesAsRead).toHaveBeenCalledExactlyOnceWith(42, {
+        upToMessageId: 102,
+      });
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
+      read$.next(undefined);
+      read$.complete();
+      expect(unreadStoreStub.refresh).toHaveBeenCalledTimes(1);
+      fixture.detectChanges();
+      expect(storeStub.markMessagesAsRead).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not mark a refreshed response while hidden and should mark it after a later visible load', () => {
+      loadInitial();
+      const refresh$ = nextRefresh();
+      refresh$.next([firstMessage, otherMessage]);
+      refresh$.complete();
+      visibility = 'hidden';
+
+      fixture.detectChanges();
+
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
+      visibility = 'visible';
+      storeStub.getMessages.mockReturnValue(of([firstMessage, otherMessage]));
+      vi.advanceTimersByTime(10_000);
+      fixture.detectChanges();
+      expect(storeStub.markMessagesAsRead).toHaveBeenCalledExactlyOnceWith(42, {
+        upToMessageId: 102,
+      });
+    });
+
+    it.each(['success', 'error'] as const)(
+      'should cancel a pending refresh and stop polling on closure while ignoring its late %s',
+      (outcome) => {
+        loadInitial();
+        component.messageForm.controls.content.setValue('Brouillon');
+        const history = component.messages();
+        const refresh$ = new Subject<ServiceRequestMessage[]>();
+        const teardown = vi.fn();
+        storeStub.getMessages.mockReturnValue(refresh$.pipe(finalize(teardown)));
+        vi.advanceTimersByTime(10_000);
+        expect(component.isRefreshing()).toBe(true);
+
+        fixture.destroy();
+        if (outcome === 'success') {
+          refresh$.next([firstMessage, otherMessage]);
+          refresh$.complete();
+        } else {
+          refresh$.error(new HttpErrorResponse({ status: 500 }));
+        }
+        vi.advanceTimersByTime(30_000);
+
+        expect(teardown).toHaveBeenCalledTimes(1);
+        expect(component.isRefreshing()).toBe(false);
+        expect(component.messages()).toBe(history);
+        expect(component.refreshError()).toBeNull();
+        expect(component.messageForm.controls.content.value).toBe('Brouillon');
+        expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+        expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['success', 'error'] as const)(
+      'should cancel an older refresh before sending and ignore its late %s without losing the saved reply',
+      (outcome) => {
+        loadInitial();
+        const refresh$ = new Subject<ServiceRequestMessage[]>();
+        const teardown = vi.fn();
+        storeStub.getMessages.mockReturnValue(refresh$.pipe(finalize(teardown)));
+        vi.advanceTimersByTime(10_000);
+        const send$ = new Subject<ServiceRequestMessage>();
+        storeStub.sendMessage.mockReturnValue(send$);
+        const saved = { ...firstMessage, id: 103, content: 'Ma nouvelle réponse' };
+        component.messageForm.controls.content.setValue(saved.content);
+
+        component.onSendMessage();
+
+        expect(teardown).toHaveBeenCalledTimes(1);
+        expect(component.isRefreshing()).toBe(false);
+        expect(component.isSending()).toBe(true);
+        expect(storeStub.sendMessage).toHaveBeenCalledExactlyOnceWith(42, {
+          content: saved.content,
+        });
+        vi.advanceTimersByTime(20_000);
+        expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+        send$.next(saved);
+        send$.complete();
+        if (outcome === 'success') {
+          refresh$.next([firstMessage]);
+          refresh$.complete();
+        } else {
+          refresh$.error(new HttpErrorResponse({ status: 500 }));
+        }
+        fixture.detectChanges();
+        expect(component.messages()).toEqual([firstMessage, saved]);
+        expect(component.messageForm.controls.content.value).toBe('');
+        expect(component.refreshError()).toBeNull();
+        storeStub.getMessages.mockReturnValue(of([firstMessage, saved]));
+        vi.advanceTimersByTime(10_000);
+        fixture.detectChanges();
+        expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+        expect(component.messages()).toEqual([firstMessage, saved]);
+      },
+    );
+
+    it('should leave a pending refresh active when submission is invalid', () => {
+      loadInitial();
+      const refresh$ = new Subject<ServiceRequestMessage[]>();
+      const teardown = vi.fn();
+      storeStub.getMessages.mockReturnValue(refresh$.pipe(finalize(teardown)));
+      vi.advanceTimersByTime(10_000);
+      component.messageForm.controls.content.setValue('   ');
+
+      component.onSendMessage();
+
+      expect(teardown).not.toHaveBeenCalled();
+      expect(component.isRefreshing()).toBe(true);
+      expect(component.messageForm.controls.content.touched).toBe(true);
+      expect(storeStub.sendMessage).not.toHaveBeenCalled();
+      refresh$.next([firstMessage]);
+      refresh$.complete();
+      fixture.detectChanges();
+      expect(teardown).toHaveBeenCalledTimes(1);
+      expect(component.messageForm.controls.content.value).toBe('   ');
+    });
+
+    it('should resume history refresh after a cancelled load and failed send without clearing the draft', () => {
+      loadInitial();
+      const refresh$ = nextRefresh();
+      const send$ = new Subject<ServiceRequestMessage>();
+      storeStub.sendMessage.mockReturnValue(send$);
+      component.messageForm.controls.content.setValue('Brouillon à réessayer');
+      component.onSendMessage();
+
+      send$.error(new HttpErrorResponse({ status: 500 }));
+      fixture.detectChanges();
+      expect(component.isSending()).toBe(false);
+      expect(component.messageForm.controls.content.value).toBe('Brouillon à réessayer');
+      expect(component.sendError()).not.toBeNull();
+      storeStub.getMessages.mockReturnValue(of([firstMessage]));
+      vi.advanceTimersByTime(10_000);
+      fixture.detectChanges();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      expect(component.messageForm.controls.content.value).toBe('Brouillon à réessayer');
+      refresh$.next([]);
+      expect(component.messages()).toEqual([firstMessage]);
     });
   });
 
