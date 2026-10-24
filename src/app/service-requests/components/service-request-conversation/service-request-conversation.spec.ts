@@ -777,27 +777,178 @@ describe('ServiceRequestConversation', () => {
       expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
     });
 
-    it('should skip hidden-page ticks and resume on the next tick after visibility returns', () => {
+    it('should refresh immediately on return without changing the periodic schedule', () => {
       loadInitial();
       visibility = 'hidden';
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
-
-      vi.advanceTimersByTime(30_000);
-
+      vi.advanceTimersByTime(35_000);
       expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+      const refresh$ = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValue(refresh$);
+
       visibility = 'visible';
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
-      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
-      storeStub.getMessages.mockReturnValue(of([firstMessage]));
-      vi.advanceTimersByTime(10_000);
-      fixture.detectChanges();
+
       expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(storeStub.getMessages).toHaveBeenLastCalledWith(42);
+      refresh$.next([firstMessage]);
+      refresh$.complete();
+      fixture.detectChanges();
+      storeStub.getMessages.mockReturnValue(of([firstMessage]));
+      vi.advanceTimersByTime(4_999);
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(1);
+      fixture.detectChanges();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+    });
+
+    it('should ignore visibility changes while the initial history request is still pending', () => {
+      const teardown = vi.fn();
+      storeStub.getMessages.mockReturnValue(response$.pipe(finalize(teardown)));
+      fixture.detectChanges();
+
+      visibility = 'hidden';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      visibility = 'visible';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+      expect(teardown).not.toHaveBeenCalled();
+      expect(component.isLoading()).toBe(true);
+      response$.next([firstMessage]);
+      response$.complete();
+      fixture.detectChanges();
+      expect(teardown).toHaveBeenCalledTimes(1);
+      expect(component.isLoading()).toBe(false);
+    });
+
+    it('should preserve the draft and wait for a return-triggered request across further events and timer ticks', () => {
+      loadInitial();
+      const textarea = element().querySelector<HTMLTextAreaElement>('textarea')!;
+      textarea.value = 'Brouillon au retour';
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      textarea.focus();
+      fixture.detectChanges();
+      const refresh$ = new Subject<ServiceRequestMessage[]>();
+      const teardown = vi.fn();
+      storeStub.getMessages.mockReturnValue(refresh$.pipe(finalize(teardown)));
+      visibility = 'hidden';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      visibility = 'visible';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+
+      visibility = 'hidden';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      visibility = 'visible';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      vi.advanceTimersByTime(20_000);
+      fixture.detectChanges();
+
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(teardown).not.toHaveBeenCalled();
+      expect(component.isRefreshing()).toBe(true);
+      expect(element().querySelector('textarea')).toBe(textarea);
+      expect(TestBed.inject(DOCUMENT).activeElement).toBe(textarea);
+      expect(textarea.value).toBe('Brouillon au retour');
+      refresh$.next([firstMessage]);
+      refresh$.complete();
+      fixture.detectChanges();
+      expect(teardown).toHaveBeenCalledTimes(1);
+      expect(component.messageForm.controls.content.value).toBe('Brouillon au retour');
+    });
+
+    it('should defer visibility-triggered loading while sending and allow it again after the saved reply', () => {
+      loadInitial();
+      const send$ = new Subject<ServiceRequestMessage>();
+      storeStub.sendMessage.mockReturnValue(send$);
+      const saved = { ...firstMessage, id: 103, content: 'Ma réponse' };
+      component.messageForm.controls.content.setValue(saved.content);
+      component.onSendMessage();
+      visibility = 'hidden';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      visibility = 'visible';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      vi.advanceTimersByTime(10_000);
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+
+      send$.next(saved);
+      send$.complete();
+      storeStub.getMessages.mockReturnValue(of([firstMessage, saved]));
+      visibility = 'hidden';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      visibility = 'visible';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      fixture.detectChanges();
+
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(component.messages()).toEqual([firstMessage, saved]);
+      expect(component.isSending()).toBe(false);
+    });
+
+    it('should retry a failed return-triggered refresh on another return while keeping the draft', () => {
+      loadInitial();
+      component.messageForm.controls.content.setValue('Brouillon conservé');
+      const failed$ = new Subject<ServiceRequestMessage[]>();
+      const retry$ = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValueOnce(failed$).mockReturnValueOnce(retry$);
+      visibility = 'hidden';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      visibility = 'visible';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      failed$.error(new HttpErrorResponse({ status: 500 }));
+      fixture.detectChanges();
+      expect(component.refreshError()).not.toBeNull();
+      expect(element().querySelector('textarea')?.value).toBe('Brouillon conservé');
+
+      visibility = 'hidden';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      visibility = 'visible';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      fixture.detectChanges();
+
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      expect(component.refreshError()).toBeNull();
+      retry$.next([firstMessage]);
+      retry$.complete();
+      fixture.detectChanges();
+      expect(component.isRefreshing()).toBe(false);
+      expect(component.messageForm.controls.content.value).toBe('Brouillon conservé');
+    });
+
+    it('should remove the visibility listener and stop both refresh sources on closure', () => {
+      const document = TestBed.inject(DOCUMENT);
+      const addListener = vi.spyOn(document, 'addEventListener');
+      const removeListener = vi.spyOn(document, 'removeEventListener');
+      loadInitial();
+      const listeners = addListener.mock.calls.filter(([event]) => event === 'visibilitychange');
+      expect(listeners).toHaveLength(1);
+      const handler = listeners[0][1];
+
+      fixture.destroy();
+
+      expect(
+        removeListener.mock.calls.some(
+          ([event, removed]) => event === 'visibilitychange' && removed === handler,
+        ),
+      ).toBe(true);
+      visibility = 'hidden';
+      document.dispatchEvent(new Event('visibilitychange'));
+      visibility = 'visible';
+      document.dispatchEvent(new Event('visibilitychange'));
+      vi.advanceTimersByTime(30_000);
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
     });
 
     it('should not issue further history requests when the session becomes anonymous', () => {
       loadInitial();
       authSessionStub.currentUser.mockReturnValue(null);
 
+      visibility = 'hidden';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      visibility = 'visible';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
       vi.advanceTimersByTime(30_000);
 
       expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
@@ -808,6 +959,10 @@ describe('ServiceRequestConversation', () => {
       response$.error(new HttpErrorResponse({ status: 500 }));
       fixture.detectChanges();
 
+      visibility = 'hidden';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      visibility = 'visible';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
       vi.advanceTimersByTime(30_000);
 
       expect(storeStub.getMessages).toHaveBeenCalledTimes(1);

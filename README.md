@@ -320,10 +320,17 @@ closing and reopening the discussion to retry.
 A valid reply submission cancels the pending history load before sending,
 preventing an older response from replacing the newly saved reply. Invalid
 submissions leave pending history loads active. Polling resumes after sending
-finishes, including after a failed send. Closing the discussion stops its timer
-and cancels any pending history load. Hiding the page skips future requests
-and read acknowledgements after rendering, while an in-flight history load can
-still finish. Returning to the page resumes history requests on the next tick.
+finishes, including after a failed send. Closing the discussion stops its timer,
+removes its visibility listener and cancels any pending history load. Hiding
+the page skips future requests and read acknowledgements after rendering,
+while an in-flight history load can still finish.
+
+Returning to the page triggers an immediate history refresh through
+`visibilitychange`, provided the account is signed in, the initial load
+succeeded and no history load or reply submission is pending. The existing
+10-second timer keeps its schedule. Both trigger sources share the same
+subscription, which is cleaned up when the discussion closes. A background
+loading error allows retrying on a later return as well as on a polling tick.
 
 The read PATCH returns no content and does not replace locally loaded read
 dates; the next history refresh or reopening fetches the latest server values.

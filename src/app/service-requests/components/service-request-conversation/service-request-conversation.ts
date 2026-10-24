@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { ServiceRequestMessage } from '../../../models/service-request-message.model';
 import { ServiceRequestStore } from '../../services/service-request-store';
-import { finalize, interval, Subject, takeUntil } from 'rxjs';
+import { finalize, fromEvent, interval, merge, Subject, takeUntil } from 'rxjs';
 import { DatePipe } from '@angular/common';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -52,7 +52,7 @@ export class ServiceRequestConversation implements OnInit {
   ngOnInit(): void {
     this.loadMessages(true);
 
-    interval(10_000)
+    merge(interval(10_000), fromEvent(this.document, 'visibilitychange'))
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
         if (
