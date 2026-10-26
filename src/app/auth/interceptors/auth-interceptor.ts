@@ -28,7 +28,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         error.status === 401 &&
         authSession.accessToken() === accessToken
       ) {
-        authSession.logout();
+        authSession.clearSession();
       }
 
       return throwError(() => error);

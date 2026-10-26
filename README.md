@@ -137,7 +137,40 @@ longer remain visible after manual logout, including when a response arrives
 from an operation that was already pending.
 
 Failed login keeps the entered values and displays an error message.
-Reloading the application clears the session and requires another login.
+On a reload or direct URL entry, `provideAppInitializer` waits for
+`AuthSession.restore()` to complete before application startup. A valid refresh
+cookie obtains a new access token and profile before protected-route navigation.
+Without a valid session, initialization completes anonymously and protected URLs
+redirect to login. An API/network failure or the ten-second timeout also allows
+startup, with a restoration error available on the login page.
+
+The access token and profile remain in memory; no token is stored in localStorage
+or sessionStorage. The browser manages the HttpOnly refresh cookie. Successful
+logout revokes its backend session and clears the cookie, so a subsequent reload
+does not restore the account.
+
+`AuthStore.login()`, `refresh()` and `logout()` send requests to the local API
+with `withCredentials: true`, allowing the browser to exchange the HttpOnly
+refresh cookie. Refresh returns the same `{ accessToken }` shape as login;
+logout completes on the API's empty 204 response. Errors propagate to callers
+without automatic retries. Registration and bearer-authenticated profile lookup
+do not opt into cross-origin cookies.
+
+`AuthSession.logout()` clears local identity immediately and calls server
+logout. While that request is pending, duplicate logout and new login attempts
+are ignored. Success releases the loading state; a server/network error or ten
+seconds without a response releases loading and displays a logout error, while
+keeping local identity cleared. An explicit retry remains possible.
+
+`AuthSession.restore()` returns a cold Observable: subscription starts refresh,
+then retrieves the profile with the new token and stores both together. While
+another authentication operation is pending, restoration is skipped. A 401
+finishes anonymously without an error message; other failures show a restoration
+error while still completing normally. The combined token/profile wait is
+limited to ten seconds. Local cleanup or logout cancels pending restoration,
+preventing late responses from signing the account back in. The application
+initializer returns this Observable directly so Angular subscribes and waits
+until restoration or its anonymous fallback completes.
 
 Creating or editing a service provider or service offering, sending a service
 request, and viewing sent or received request lists require login.
@@ -149,12 +182,16 @@ Requests targeting other origins do not receive the session token.
 
 If a request using the automatically attached session token receives
 `401 Unauthorized`, the interceptor clears the session if that token is still
-the current one. The header returns to its logged-out state; the user can log
-in again. The error is forwarded to the component, and no automatic retry or
-navigation occurs. A delayed 401 from an older token does not clear a newer
-session. Other HTTP errors and requests forwarded without token attachment do
-not trigger logout. Expiration is detected when the API rejects a request,
-not by a timer in the interface.
+the current one by calling `AuthSession.clearSession()`. This resets local
+identity and cancels pending login/profile requests without calling server
+logout or revoking the refresh cookie. The header returns to its logged-out
+state; the user can log in again. The error is forwarded to the component,
+and no automatic retry or navigation occurs. A delayed 401 from an older token
+does not clear a newer session. Other HTTP errors and requests forwarded without token attachment do
+not clear the local session. Expiration is detected when the API rejects a
+request, not by a timer in the interface. Restoration currently runs at startup;
+requests rejected during an already running session are not automatically
+renewed or retried.
 
 The backend independently enforces authentication on protected endpoints
 and ownership checks for provider updates, deletion and offering creation, updates and deletion.
@@ -445,7 +482,6 @@ creates a production build.
 ## Planned improvements
 
 - Further visual and accessibility improvements
-- Session persistence
 - A session expiry notification and return to login
 - A mobile account menu with the authenticated user's name always visible
 - Login redirection using `replaceUrl: true` to improve browser back navigation

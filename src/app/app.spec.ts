@@ -398,6 +398,7 @@ describe('App unread message session synchronization', () => {
     currentUser: signal<CurrentUserResponse | null>(null),
     accessToken: signal<string | null>(null),
     logout: vi.fn(),
+    clearSession: vi.fn(),
   };
   let fixture: ComponentFixture<App>;
   let httpTesting: HttpTestingController;
@@ -413,10 +414,12 @@ describe('App unread message session synchronization', () => {
   beforeEach(async () => {
     authSessionStub.currentUser.set(null);
     authSessionStub.accessToken.set(null);
-    authSessionStub.logout.mockReset().mockImplementation(() => {
+    const resetLocal = () => {
       authSessionStub.currentUser.set(null);
       authSessionStub.accessToken.set(null);
-    });
+    };
+    authSessionStub.logout.mockReset().mockImplementation(resetLocal);
+    authSessionStub.clearSession.mockReset().mockImplementation(resetLocal);
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [
@@ -527,13 +530,14 @@ describe('App unread message session synchronization', () => {
     httpTesting.expectNone(url);
   });
 
-  it('should reset counts after an interceptor-triggered logout on 401 without retrying', () => {
+  it('should reset counts after interceptor-triggered local cleanup on 401 without retrying', () => {
     const pending = signIn();
 
     pending.flush({ message: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
     fixture.detectChanges();
 
-    expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
+    expect(authSessionStub.clearSession).toHaveBeenCalledTimes(1);
+    expect(authSessionStub.logout).not.toHaveBeenCalled();
     expect(authSessionStub.currentUser()).toBeNull();
     expect(countsStore.counts()).toBeNull();
     expect(countsStore.isLoading()).toBe(false);
@@ -550,6 +554,7 @@ describe('App unread message session synchronization', () => {
 
     expect(authSessionStub.currentUser()).toEqual(userA);
     expect(authSessionStub.logout).not.toHaveBeenCalled();
+    expect(authSessionStub.clearSession).not.toHaveBeenCalled();
     expect(countsStore.errorMessage()).toBe('Impossible de charger les compteurs de messages.');
     expect(countsStore.counts()).toBeNull();
     httpTesting.expectNone(url);
@@ -760,7 +765,8 @@ describe('App unread message session synchronization', () => {
         TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
         vi.advanceTimersByTime(90_000);
 
-        expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
+        expect(authSessionStub.clearSession).toHaveBeenCalledTimes(1);
+        expect(authSessionStub.logout).not.toHaveBeenCalled();
         expect(authSessionStub.currentUser()).toBeNull();
         expect(countsStore.counts()).toBeNull();
         expect(countsStore.errorMessage()).toBeNull();
@@ -927,6 +933,7 @@ describe('App unread message session synchronization', () => {
       expect(countsStore.errorMessage()).toBe('Impossible de charger les compteurs de messages.');
       expect(authSessionStub.currentUser()).toEqual(userA);
       expect(authSessionStub.logout).not.toHaveBeenCalled();
+      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(30_000);
       const retry = httpTesting.expectOne(url);
@@ -999,7 +1006,7 @@ describe('App unread message session synchronization', () => {
       httpTesting.expectNone(url);
     });
 
-    it('should stop polling after an expired token triggers interceptor logout', () => {
+    it('should stop polling after an expired token triggers local session cleanup', () => {
       signIn().flush(emptyCounts);
       fixture.detectChanges();
       vi.advanceTimersByTime(30_000);
@@ -1011,7 +1018,8 @@ describe('App unread message session synchronization', () => {
       vi.advanceTimersByTime(90_000);
       fixture.detectChanges();
 
-      expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
+      expect(authSessionStub.clearSession).toHaveBeenCalledTimes(1);
+      expect(authSessionStub.logout).not.toHaveBeenCalled();
       expect(authSessionStub.currentUser()).toBeNull();
       expect(countsStore.counts()).toBeNull();
       expect(countsStore.errorMessage()).toBeNull();

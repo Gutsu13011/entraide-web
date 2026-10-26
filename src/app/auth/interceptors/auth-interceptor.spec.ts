@@ -13,6 +13,7 @@ import { AuthSession } from '../services/auth-session';
 describe('authInterceptor', () => {
   const authSessionStub = {
     accessToken: signal<string | null>('fake-token'),
+    clearSession: vi.fn(),
     logout: vi.fn(),
   };
 
@@ -21,7 +22,8 @@ describe('authInterceptor', () => {
 
   beforeEach(() => {
     authSessionStub.accessToken.set('fake-token');
-    authSessionStub.logout.mockReset().mockImplementation(() => {
+    authSessionStub.logout.mockReset();
+    authSessionStub.clearSession.mockReset().mockImplementation(() => {
       authSessionStub.accessToken.set(null);
     });
 
@@ -38,6 +40,7 @@ describe('authInterceptor', () => {
 
   afterEach(() => {
     httpTesting.verify();
+    expect(authSessionStub.logout).not.toHaveBeenCalled();
   });
 
   it('should add a bearer token to requests targeting the API', () => {
@@ -70,8 +73,17 @@ describe('authInterceptor', () => {
     request.flush([]);
   });
 
+  it('should preserve cookie transport when attaching a bearer token to an authentication request', () => {
+    http.post('http://localhost:3000/auth/refresh', {}, { withCredentials: true }).subscribe();
+    const request = httpTesting.expectOne('http://localhost:3000/auth/refresh');
+
+    expect(request.request.withCredentials).toBe(true);
+    expect(request.request.headers.get('Authorization')).toBe('Bearer fake-token');
+    request.flush({ accessToken: 'renewed-token' });
+  });
+
   describe('response errors', () => {
-    it('should log out the current session on 401 and forward the error to the subscriber', () => {
+    it('should clear the local session on 401 and forward the error to the subscriber', () => {
       const nextSpy = vi.fn();
       const errorSpy = vi.fn();
       http
@@ -81,12 +93,12 @@ describe('authInterceptor', () => {
         'http://localhost:3000/service-providers/7/service-offerings/12',
       );
       expect(request.request.headers.get('Authorization')).toBe('Bearer fake-token');
-      expect(authSessionStub.logout).not.toHaveBeenCalled();
+      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
       const body = { message: 'Unauthorized' };
 
       request.flush(body, { status: 401, statusText: 'Unauthorized' });
 
-      expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
+      expect(authSessionStub.clearSession).toHaveBeenCalledTimes(1);
       expect(authSessionStub.accessToken()).toBeNull();
       expect(nextSpy).not.toHaveBeenCalled();
       expect(errorSpy).toHaveBeenCalledExactlyOnceWith(expect.any(HttpErrorResponse));
@@ -97,7 +109,7 @@ describe('authInterceptor', () => {
       { status: 403, statusText: 'Forbidden' },
       { status: 500, statusText: 'Internal Server Error' },
     ])(
-      'should forward status $status without logging out the session',
+      'should forward status $status without clearing the local session',
       ({ status, statusText }) => {
         const errorSpy = vi.fn();
         http.get('http://localhost:3000/service-providers/7').subscribe({ error: errorSpy });
@@ -106,7 +118,7 @@ describe('authInterceptor', () => {
 
         request.flush(body, { status, statusText });
 
-        expect(authSessionStub.logout).not.toHaveBeenCalled();
+        expect(authSessionStub.clearSession).not.toHaveBeenCalled();
         expect(authSessionStub.accessToken()).toBe('fake-token');
         expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({ status, error: body }),
@@ -126,12 +138,12 @@ describe('authInterceptor', () => {
 
       request.flush(null, { status: 401, statusText: 'Unauthorized' });
 
-      expect(authSessionStub.logout).not.toHaveBeenCalled();
+      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
       expect(authSessionStub.accessToken()).toBe(currentToken);
       expect(errorSpy).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
     });
 
-    it('should log out only once when concurrent requests return 401 for the same token', () => {
+    it('should clear the local session only once when concurrent requests return 401 for the same token', () => {
       const firstErrorSpy = vi.fn();
       const secondErrorSpy = vi.fn();
       http.get('http://localhost:3000/service-providers/7').subscribe({ error: firstErrorSpy });
@@ -144,7 +156,7 @@ describe('authInterceptor', () => {
       firstRequest.flush(null, { status: 401, statusText: 'Unauthorized' });
       secondRequest.flush(null, { status: 401, statusText: 'Unauthorized' });
 
-      expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
+      expect(authSessionStub.clearSession).toHaveBeenCalledTimes(1);
       expect(authSessionStub.accessToken()).toBeNull();
       expect(firstErrorSpy).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ status: 401 }),
@@ -180,7 +192,7 @@ describe('authInterceptor', () => {
         authorization: null,
       },
     ])(
-      'should forward a 401 from $scenario without logging out the session',
+      'should forward a 401 from $scenario without clearing the local session',
       ({ url, token, authorization }) => {
         authSessionStub.accessToken.set(token);
         const errorSpy = vi.fn();
@@ -192,7 +204,7 @@ describe('authInterceptor', () => {
 
         request.flush(null, { status: 401, statusText: 'Unauthorized' });
 
-        expect(authSessionStub.logout).not.toHaveBeenCalled();
+        expect(authSessionStub.clearSession).not.toHaveBeenCalled();
         expect(authSessionStub.accessToken()).toBe(token);
         expect(errorSpy).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
       },

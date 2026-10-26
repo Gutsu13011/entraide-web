@@ -14,7 +14,9 @@ export class AuthStore {
   private readonly http = inject(HttpClient);
 
   login(loginRequest: LoginRequest): Observable<LoginResponse> {
-    return this.http.post<LoginResponse>(`${this.url}/login`, loginRequest);
+    return this.http.post<LoginResponse>(`${this.url}/login`, loginRequest, {
+      withCredentials: true,
+    });
   }
 
   register(registerRequest: RegisterRequest): Observable<void> {
@@ -25,5 +27,25 @@ export class AuthStore {
     return this.http.get<CurrentUserResponse>(`${this.url}/me`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+  }
+
+  refresh(): Observable<LoginResponse> {
+    return this.http.post<LoginResponse>(
+      `${this.url}/refresh`,
+      {},
+      {
+        withCredentials: true,
+      },
+    );
+  }
+
+  logout(): Observable<void> {
+    return this.http.post<void>(
+      `${this.url}/logout`,
+      {},
+      {
+        withCredentials: true,
+      },
+    );
   }
 }
