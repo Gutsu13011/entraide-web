@@ -1,3 +1,4 @@
+import { of, tap, throwError } from 'rxjs';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { App } from './app';
@@ -10,7 +11,7 @@ import { ServiceRequest, ServiceRequestStatus } from './models/service-request.m
 import { ServicePricingType } from './models/service-offering.model';
 import { unreadMessageState } from './service-requests/services/unread-message-store';
 import type { ServiceRequestUnreadMessageCounts } from './models/service-request-unread-message-counts.model';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { authInterceptor } from './auth/interceptors/auth-interceptor';
 
 describe('App', () => {
@@ -399,6 +400,7 @@ describe('App unread message session synchronization', () => {
     accessToken: signal<string | null>(null),
     logout: vi.fn(),
     clearSession: vi.fn(),
+    renewAccessToken: vi.fn(),
   };
   let fixture: ComponentFixture<App>;
   let httpTesting: HttpTestingController;
@@ -418,6 +420,9 @@ describe('App unread message session synchronization', () => {
       authSessionStub.currentUser.set(null);
       authSessionStub.accessToken.set(null);
     };
+    authSessionStub.renewAccessToken
+      .mockReset()
+      .mockImplementation(() => throwError(() => new HttpErrorResponse({ status: 401 })));
     authSessionStub.logout.mockReset().mockImplementation(resetLocal);
     authSessionStub.clearSession.mockReset().mockImplementation(resetLocal);
     await TestBed.configureTestingModule({
@@ -530,7 +535,32 @@ describe('App unread message session synchronization', () => {
     httpTesting.expectNone(url);
   });
 
-  it('should reset counts after interceptor-triggered local cleanup on 401 without retrying', () => {
+  it('should retain the account and update counts after transparent token renewal and one retry', () => {
+    signIn().flush({ sentRequests: 1, receivedRequests: 0, total: 1 });
+    fixture.detectChanges();
+    authSessionStub.renewAccessToken.mockImplementation(() =>
+      of('renewed-token').pipe(tap((token) => authSessionStub.accessToken.set(token))),
+    );
+    countsStore.refresh();
+    const original = httpTesting.expectOne(url);
+
+    original.flush(null, { status: 401, statusText: 'Unauthorized' });
+
+    const retry = httpTesting.expectOne(url);
+    expect(retry.request.headers.get('Authorization')).toBe('Bearer renewed-token');
+    expect(authSessionStub.currentUser()).toBe(userA);
+    retry.flush({ sentRequests: 2, receivedRequests: 1, total: 3 });
+    fixture.detectChanges();
+    expect(countsStore.counts()).toEqual({ sentRequests: 2, receivedRequests: 1, total: 3 });
+    expect(countsStore.isLoading()).toBe(false);
+    expect(countsStore.errorMessage()).toBeNull();
+    expect(authSessionStub.renewAccessToken).toHaveBeenCalledTimes(1);
+    expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+    expect(authSessionStub.logout).not.toHaveBeenCalled();
+    httpTesting.expectNone(url);
+  });
+
+  it('should reset counts when a 401 is followed by failed token renewal', () => {
     const pending = signIn();
 
     pending.flush({ message: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
@@ -747,7 +777,7 @@ describe('App unread message session synchronization', () => {
         httpTesting.expectNone(url);
       });
 
-      it('should stop return-triggered refreshes and polling after a 401 clears the session', () => {
+      it('should stop return-triggered refreshes and polling after token renewal fails', () => {
         signIn().flush(emptyCounts);
         fixture.detectChanges();
         visibility = 'hidden';
@@ -1006,7 +1036,7 @@ describe('App unread message session synchronization', () => {
       httpTesting.expectNone(url);
     });
 
-    it('should stop polling after an expired token triggers local session cleanup', () => {
+    it('should stop polling after an expired token cannot be renewed', () => {
       signIn().flush(emptyCounts);
       fixture.detectChanges();
       vi.advanceTimersByTime(30_000);

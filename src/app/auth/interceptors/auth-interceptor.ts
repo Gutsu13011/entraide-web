@@ -1,16 +1,23 @@
 import { HttpInterceptorFn, HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { AuthSession } from '../services/auth-session';
-import { catchError, throwError } from 'rxjs';
+import { catchError, of, switchMap, throwError } from 'rxjs';
 
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const authSession = inject(AuthSession);
   const accessToken = authSession.accessToken();
+  const currentUser = authSession.currentUser();
 
   try {
     const address = new URL(req.url);
 
     if (address.origin !== 'http://localhost:3000') {
+      return next(req);
+    }
+
+    const authenticationPaths = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout'];
+
+    if (req.method === 'POST' && authenticationPaths.includes(address.pathname)) {
       return next(req);
     }
   } catch {
@@ -21,17 +28,54 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
     return next(req);
   }
 
+  const isSameSession = () => currentUser !== null && authSession.currentUser() === currentUser;
+  const retryWithToken = (token: string) =>
+    next(req.clone({ setHeaders: { Authorization: `Bearer ${token}` } })).pipe(
+      catchError((error) => {
+        if (
+          error instanceof HttpErrorResponse &&
+          error.status === 401 &&
+          isSameSession() &&
+          authSession.accessToken() === token
+        ) {
+          authSession.clearSession();
+        }
+
+        return throwError(() => error);
+      }),
+    );
+
   return next(req.clone({ setHeaders: { Authorization: `Bearer ${accessToken}` } })).pipe(
     catchError((error) => {
-      if (
-        error instanceof HttpErrorResponse &&
-        error.status === 401 &&
-        authSession.accessToken() === accessToken
-      ) {
-        authSession.clearSession();
+      if (!(error instanceof HttpErrorResponse) || error.status !== 401 || !isSameSession()) {
+        return throwError(() => error);
       }
 
-      return throwError(() => error);
+      const latestAccessToken = authSession.accessToken();
+
+      if (latestAccessToken === null) {
+        return throwError(() => error);
+      }
+
+      const tokenSource =
+        latestAccessToken === accessToken ? authSession.renewAccessToken() : of(latestAccessToken);
+
+      return tokenSource.pipe(
+        catchError((renewalError) => {
+          if (isSameSession() && authSession.accessToken() === accessToken) {
+            authSession.clearSession();
+          }
+
+          return throwError(() => renewalError);
+        }),
+        switchMap((token) => {
+          if (!isSameSession() || authSession.accessToken() !== token) {
+            return throwError(() => error);
+          }
+
+          return retryWithToken(token);
+        }),
+      );
     }),
   );
 };

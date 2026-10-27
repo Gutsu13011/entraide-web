@@ -15,6 +15,7 @@ import {
   map,
   of,
   Observable,
+  shareReplay,
 } from 'rxjs';
 import { RxMethod, rxMethod } from '@ngrx/signals/rxjs-interop';
 import { AuthStore } from './auth-store';
@@ -43,6 +44,8 @@ export const AuthSession = signalStore(
   withMethods((store, authStore = inject(AuthStore)) => {
     const logoutRequested = new Subject<void>();
 
+    let tokenRenewal: Observable<string> | null = null;
+
     function clearSession(): void {
       logoutRequested.next();
       patchState(store, initialState);
@@ -50,6 +53,41 @@ export const AuthSession = signalStore(
 
     return {
       clearSession,
+      renewAccessToken(): Observable<string> {
+        return defer(() => {
+          const previousAccessToken = store.accessToken();
+
+          if (previousAccessToken === null || store.currentUser() === null) {
+            throw new Error('No active session');
+          }
+
+          if (tokenRenewal !== null) {
+            return tokenRenewal;
+          }
+
+          const renewal: Observable<string> = authStore.refresh().pipe(
+            map((response) => response.accessToken),
+            tap((newAccessToken) => {
+              if (store.accessToken() !== previousAccessToken) {
+                throw new Error('Session changed during token renewal');
+              }
+
+              patchState(store, { accessToken: newAccessToken });
+            }),
+            timeout(10_000),
+            takeUntil(logoutRequested),
+            finalize(() => {
+              if (tokenRenewal === renewal) {
+                tokenRenewal = null;
+              }
+            }),
+            shareReplay({ bufferSize: 1, refCount: true }),
+          );
+          tokenRenewal = renewal;
+
+          return tokenRenewal;
+        });
+      },
       restore(): Observable<void> {
         return defer(() => {
           if (store.isLoading()) {
@@ -114,7 +152,8 @@ export const AuthSession = signalStore(
               return EMPTY;
             }
 
-            patchState(store, { ...initialState, isLoading: true });
+            clearSession();
+            patchState(store, { isLoading: true });
 
             return authStore.login(credentials).pipe(
               switchMap((response) => {

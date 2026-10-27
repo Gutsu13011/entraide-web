@@ -46,7 +46,8 @@ service.
 - Shared authentication state managed with NgRx SignalStore
 - Automatic navigation to the provider list after successful login
 - Automatic bearer token attachment to requests targeting the backend API
-- Session cleared when the API rejects its automatically attached token with a 401 response
+- Persistent login restored at startup through an HttpOnly refresh cookie
+- Shared token renewal and one automatic retry after an authenticated API request returns 401
 - Authentication guards for provider and service offering creation and editing pages, request creation and request lists
 
 ## Project status
@@ -56,8 +57,10 @@ A first responsive interface is implemented, with further visual and
 accessibility improvements planned.
 
 Account registration, login and logout are implemented.
-Authentication state is currently stored in memory and is cleared when
-the page is reloaded.
+Access tokens and profile data are held in memory. After a page reload, the
+application restores authentication through the HttpOnly refresh cookie. During
+use, rejected access tokens are renewed transparently before retrying the request
+once, provided the refresh session is still valid.
 
 Service request creation and private sent and received request pages are
 implemented. Recipients can mark requests as read, accept or reject them,
@@ -172,6 +175,14 @@ preventing late responses from signing the account back in. The application
 initializer returns this Observable directly so Angular subscribes and waits
 until restoration or its anonymous fallback completes.
 
+`AuthSession.renewAccessToken()` returns a cold Observable of the renewed token
+and preserves the current profile. Concurrent subscribers share one cookie refresh
+request. When renewal completes, fails, or loses every subscriber, its shared
+reference is released so a later call can start a fresh renewal. Local cleanup,
+logout, or a new login cancels pending renewal; its maximum duration is ten
+seconds. Errors are forwarded to the caller without clearing local identity in
+this helper; the interceptor handles renewal failure and request retries.
+
 Creating or editing a service provider or service offering, sending a service
 request, and viewing sent or received request lists require login.
 Unauthenticated visitors opening these pages are redirected to login.
@@ -179,19 +190,34 @@ Unauthenticated visitors opening these pages are redirected to login.
 An HTTP interceptor attaches the session's access token to requests targeting
 `http://localhost:3000`, while preserving any existing Authorization header.
 Requests targeting other origins do not receive the session token.
+The exact POST paths `/auth/login`, `/auth/register`, `/auth/refresh` and
+`/auth/logout` bypass automatic token attachment, renewal and retry handling.
+Their request bodies, existing headers and cookie-transport options are preserved,
+and errors are forwarded to the caller. Query parameters do not affect path
+matching. Other paths and HTTP methods retain the normal bearer behavior.
 
 If a request using the automatically attached session token receives
-`401 Unauthorized`, the interceptor clears the session if that token is still
-the current one by calling `AuthSession.clearSession()`. This resets local
-identity and cancels pending login/profile requests without calling server
-logout or revoking the refresh cookie. The header returns to its logged-out
-state; the user can log in again. The error is forwarded to the component,
-and no automatic retry or navigation occurs. A delayed 401 from an older token
-does not clear a newer session. Other HTTP errors and requests forwarded without token attachment do
-not clear the local session. Expiration is detected when the API rejects a
-request, not by a timer in the interface. Restoration currently runs at startup;
-requests rejected during an already running session are not automatically
-renewed or retried.
+`401 Unauthorized`, the interceptor renews the token and retries that request
+once. Concurrent 401 responses share one renewal. A delayed 401 reuses the
+already-renewed token when the profile still identifies the same local session.
+Retry preserves the original method, URL, body, headers and cookie options,
+replacing only the automatically attached Authorization value.
+
+Renewal errors, including network failures and the ten-second timeout, clear
+local identity if the original session is still current and are forwarded to
+the caller. A retried request that also returns 401 clears its current local
+session without starting another renewal. Other retry errors are forwarded
+without clearing authentication. Cleanup calls `AuthSession.clearSession()`;
+it does not call server logout or revoke the refresh cookie. No automatic
+navigation occurs.
+
+Local cleanup, logout and a new login cancel pending renewal. Requests from an
+older login are not replayed in the new session, including a later login to the
+same account. Late errors cannot clear a newer identity or token. Requests
+forwarded without automatic token attachment keep their caller-owned error
+handling. Expiration is detected through API responses rather than a browser
+timer; startup restoration and runtime renewal serve different stages of the
+session lifecycle.
 
 The backend independently enforces authentication on protected endpoints
 and ownership checks for provider updates, deletion and offering creation, updates and deletion.
@@ -398,8 +424,8 @@ While signed in, App also refreshes counts every 30 seconds when the document
 is visible. Ticks are skipped while the document is hidden or a count request
 is still pending, allowing slow responses to finish. Manual
 refreshes after reading keep the same polling schedule. A server error allows
-another attempt at the next tick; a 401 clears the session through the
-interceptor and stops polling. Logout, account changes and App destruction
+another attempt at the next tick. A 401 triggers token renewal and one retry;
+failed renewal or a repeated 401 clears local identity and stops polling. Logout, account changes and App destruction
 stop the previous timer and remove the visibility listener. A newly signed-in account loads its own counts
 immediately and starts a new timer.
 
