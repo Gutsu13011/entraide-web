@@ -1,4 +1,4 @@
-import { Component, DOCUMENT, effect, inject, untracked } from '@angular/core';
+import { Component, DOCUMENT, effect, inject, signal, untracked } from '@angular/core';
 import {
   RouterLink,
   RouterOutlet,
@@ -40,6 +40,7 @@ export class App {
       const currentUser = this.authSession.currentUser();
 
       untracked(() => {
+        this.closeAccountMenu();
         this.unreadMessageState.reset();
 
         if (currentUser === null) {
@@ -71,8 +72,18 @@ export class App {
 
   readonly authSession = inject(AuthSession);
   readonly unreadMessageState = inject(unreadMessageState);
+  readonly isAccountMenuOpen = signal<boolean>(false);
+
+  toggleAccountMenu(): void {
+    this.isAccountMenuOpen.update((isOpen) => !isOpen);
+  }
+
+  closeAccountMenu(): void {
+    this.isAccountMenuOpen.set(false);
+  }
 
   onLogout(): void {
+    this.closeAccountMenu();
     this.authSession.logout();
     this.router.navigate(['/login']);
   }

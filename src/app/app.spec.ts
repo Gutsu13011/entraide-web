@@ -82,7 +82,7 @@ describe('App', () => {
     });
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('nav').textContent).toContain('Alice Martin');
-    expect(fixture.nativeElement.querySelector('nav button').textContent).toContain(
+    expect(fixture.nativeElement.querySelector('.account-menu-panel button').textContent).toContain(
       'Se déconnecter',
     );
     expect(fixture.nativeElement.querySelector('a[href="/login"]')).toBeNull();
@@ -98,8 +98,198 @@ describe('App', () => {
       email: 'alicemartin@example.com',
     });
     fixture.detectChanges();
-    fixture.nativeElement.querySelector('nav button').click();
+    fixture.nativeElement.querySelector('.account-menu-panel button').click();
     expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
+  });
+
+  describe('account menu', () => {
+    const user: CurrentUserResponse = {
+      id: 8,
+      firstName: 'Alice',
+      lastName: 'Martin',
+      email: 'alice@example.test',
+    };
+
+    function openAccount() {
+      authSessionStub.currentUser.set(user);
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      const element = fixture.nativeElement as HTMLElement;
+      const toggle = element.querySelector<HTMLButtonElement>('.account-menu-toggle')!;
+      const panel = element.querySelector<HTMLElement>('#account-menu-panel')!;
+      return { fixture, element, toggle, panel };
+    }
+
+    it('should keep the account name outside the initially collapsed panel and associate its button with that panel', () => {
+      const { fixture, element, toggle, panel } = openAccount();
+      expect(toggle.type).toBe('button');
+      expect(toggle.textContent?.trim()).toBe('Alice Martin');
+      expect(toggle.getAttribute('aria-controls')).toBe(panel.id);
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(panel.classList.contains('is-open')).toBe(false);
+      expect(element.querySelector('.account-actions > .session-user')?.textContent).toBe(
+        'Alice Martin',
+      );
+      expect(panel.querySelector('.session-user')).toBeNull();
+      expect(fixture.componentInstance.isAccountMenuOpen()).toBe(false);
+    });
+
+    it('should toggle the panel class and expanded state when the account button is clicked twice', () => {
+      const { fixture, toggle, panel } = openAccount();
+      toggle.click();
+      fixture.detectChanges();
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(panel.classList.contains('is-open')).toBe(true);
+      toggle.click();
+      fixture.detectChanges();
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(panel.classList.contains('is-open')).toBe(false);
+      expect(authSessionStub.logout).not.toHaveBeenCalled();
+    });
+
+    it.each(['a[href="/service-requests/sent"]', 'a[href="/service-requests/received"]', 'button'])(
+      'should close on Escape from %s and return focus to the account button',
+      (selector) => {
+        const { fixture, toggle, panel } = openAccount();
+        toggle.click();
+        fixture.detectChanges();
+        const action = panel.querySelector<HTMLElement>(selector)!;
+        action.focus();
+        expect(TestBed.inject(DOCUMENT).activeElement).toBe(action);
+
+        action.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        fixture.detectChanges();
+
+        expect(panel.classList.contains('is-open')).toBe(false);
+        expect(toggle.getAttribute('aria-expanded')).toBe('false');
+        expect(TestBed.inject(DOCUMENT).activeElement).toBe(toggle);
+        expect(authSessionStub.logout).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should close on Escape while focus stays on the account button and allow reopening', () => {
+      const { fixture, toggle, panel } = openAccount();
+      toggle.focus();
+      toggle.click();
+      fixture.detectChanges();
+      expect(panel.classList.contains('is-open')).toBe(true);
+
+      toggle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(panel.classList.contains('is-open')).toBe(false);
+      expect(TestBed.inject(DOCUMENT).activeElement).toBe(toggle);
+      toggle.click();
+      fixture.detectChanges();
+      expect(panel.classList.contains('is-open')).toBe(true);
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('should leave the panel and focus unchanged for another key inside the panel', () => {
+      const { fixture, toggle, panel } = openAccount();
+      toggle.click();
+      fixture.detectChanges();
+      const link = panel.querySelector<HTMLAnchorElement>('a')!;
+      link.focus();
+
+      link.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      fixture.detectChanges();
+
+      expect(panel.classList.contains('is-open')).toBe(true);
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(TestBed.inject(DOCUMENT).activeElement).toBe(link);
+    });
+
+    it.each([
+      { scenario: 'the session is cleared', nextUser: null },
+      { scenario: 'another account signs in', nextUser: { ...user, id: 9, firstName: 'Bruno' } },
+    ])('should close an open panel when $scenario', ({ nextUser }) => {
+      const { fixture, element, toggle } = openAccount();
+      toggle.click();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.isAccountMenuOpen()).toBe(true);
+
+      authSessionStub.currentUser.set(nextUser);
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.isAccountMenuOpen()).toBe(false);
+      if (nextUser === null) {
+        expect(element.querySelector('#account-menu-panel')).toBeNull();
+      } else {
+        expect(element.querySelector('.account-menu-toggle')?.getAttribute('aria-expanded')).toBe(
+          'false',
+        );
+        expect(element.querySelector('.account-menu-toggle')?.textContent?.trim()).toBe(
+          'Bruno Martin',
+        );
+        expect(element.querySelector('#account-menu-panel')?.classList.contains('is-open')).toBe(
+          false,
+        );
+      }
+    });
+
+    it.each(['/', '/service-requests/sent', '/service-requests/received'])(
+      'should close the panel when the %s link is chosen',
+      (destination) => {
+        vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+        const { fixture, element, toggle, panel } = openAccount();
+        toggle.click();
+        fixture.detectChanges();
+        expect(panel.classList.contains('is-open')).toBe(true);
+
+        element.querySelector<HTMLAnchorElement>(`nav a[href="${destination}"]`)!.click();
+        fixture.detectChanges();
+
+        expect(toggle.getAttribute('aria-expanded')).toBe('false');
+        expect(panel.classList.contains('is-open')).toBe(false);
+        expect(authSessionStub.logout).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should close the panel before logging out when its logout button is clicked', () => {
+      const { fixture, toggle, panel } = openAccount();
+      toggle.click();
+      fixture.detectChanges();
+      expect(panel.classList.contains('is-open')).toBe(true);
+      authSessionStub.logout.mockImplementation(() => {
+        expect(fixture.componentInstance.isAccountMenuOpen()).toBe(false);
+      });
+      panel.querySelector<HTMLButtonElement>('button')!.click();
+      fixture.detectChanges();
+      expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(panel.classList.contains('is-open')).toBe(false);
+    });
+
+    it('should retain unread badges when the panel is opened and closed', () => {
+      const { fixture, toggle, panel } = openAccount();
+      unreadStoreStub.counts.set({ sentRequests: 2, receivedRequests: 3, total: 5 });
+      fixture.detectChanges();
+      toggle.click();
+      fixture.detectChanges();
+      expect(
+        panel.querySelector('a[href="/service-requests/sent"] .unread-badge')?.textContent?.trim(),
+      ).toBe('2');
+      expect(
+        panel
+          .querySelector('a[href="/service-requests/received"] .unread-badge')
+          ?.textContent?.trim(),
+      ).toBe('3');
+      toggle.click();
+      fixture.detectChanges();
+      expect(unreadStoreStub.counts()).toEqual({ sentRequests: 2, receivedRequests: 3, total: 5 });
+    });
+
+    it('should keep anonymous sign-in links without rendering the account toggle or panel', () => {
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.querySelector('.account-menu-toggle')).toBeNull();
+      expect(element.querySelector('#account-menu-panel')).toBeNull();
+      expect(element.querySelector('a[href="/login"]')).not.toBeNull();
+      expect(element.querySelector('a[href="/register"]')).not.toBeNull();
+    });
   });
 
   describe('request links in the header', () => {
@@ -142,7 +332,7 @@ describe('App', () => {
       fixture.detectChanges();
       const element = fixture.nativeElement as HTMLElement;
 
-      element.querySelector<HTMLButtonElement>('nav button')!.click();
+      element.querySelector<HTMLButtonElement>('.account-menu-panel button')!.click();
       fixture.detectChanges();
 
       expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
@@ -348,7 +538,7 @@ describe('App request navigation', () => {
       await openList(direction);
       expect(element().querySelector('main .service-request')).not.toBeNull();
 
-      element().querySelector<HTMLButtonElement>('nav button')!.click();
+      element().querySelector<HTMLButtonElement>('.account-menu-panel button')!.click();
       await fixture.whenStable();
       fixture.detectChanges();
 
@@ -374,7 +564,7 @@ describe('App request navigation', () => {
     const pending = await openList('sent', false);
     expect(element().querySelector('main [role="status"]')).not.toBeNull();
 
-    element().querySelector<HTMLButtonElement>('nav button')!.click();
+    element().querySelector<HTMLButtonElement>('.account-menu-panel button')!.click();
     await fixture.whenStable();
     fixture.detectChanges();
     pending.flush([sentRequest]);
@@ -488,7 +678,7 @@ describe('App unread message session synchronization', () => {
   it('should cancel the pending counts request and reset state after clicking logout', () => {
     const pending = signIn();
 
-    fixture.nativeElement.querySelector('nav button').click();
+    fixture.nativeElement.querySelector('.account-menu-panel button').click();
     fixture.detectChanges();
 
     expect(authSessionStub.logout).toHaveBeenCalledTimes(1);
@@ -540,10 +730,17 @@ describe('App unread message session synchronization', () => {
     signIn().flush(counts);
     fixture.detectChanges();
 
+    const toggle = fixture.nativeElement.querySelector('.account-menu-toggle') as HTMLButtonElement;
+    toggle.click();
+    fixture.detectChanges();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+
     authSessionStub.accessToken.set('replacement-token');
     fixture.detectChanges();
 
     expect(countsStore.counts()).toEqual(counts);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(fixture.componentInstance.isAccountMenuOpen()).toBe(true);
     httpTesting.expectNone(url);
   });
 
@@ -883,7 +1080,7 @@ describe('App unread message session synchronization', () => {
         visibility = 'hidden';
         vi.advanceTimersByTime(10_000);
 
-        fixture.nativeElement.querySelector('nav button').click();
+        fixture.nativeElement.querySelector('.account-menu-panel button').click();
         fixture.detectChanges();
         visibility = 'visible';
         TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
@@ -1014,7 +1211,7 @@ describe('App unread message session synchronization', () => {
       vi.advanceTimersByTime(30_000);
       const pendingPoll = httpTesting.expectOne(url);
 
-      fixture.nativeElement.querySelector('nav button').click();
+      fixture.nativeElement.querySelector('.account-menu-panel button').click();
       fixture.detectChanges();
       vi.advanceTimersByTime(90_000);
       fixture.detectChanges();
@@ -1160,7 +1357,7 @@ describe('App unread message session synchronization', () => {
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(2);
 
-      fixture.nativeElement.querySelector('nav button').click();
+      fixture.nativeElement.querySelector('.account-menu-panel button').click();
       fixture.detectChanges();
 
       expect(fixture.nativeElement.querySelectorAll('nav .unread-badge')).toHaveLength(0);

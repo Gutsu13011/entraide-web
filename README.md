@@ -37,6 +37,7 @@ service.
 - Request participants, messages, historical offering titles and pricing, status and dates displayed in cards
 - Inline conversations on sent and received request cards, with reply submission and read receipts
 - Signed-in account links to request lists in the header, with shared unread-message badges
+- Responsive account panel with the signed-in name always visible and an expanded-state button on mobile and tablet
 - Manual logout opens login and closes the current page, including private request lists
 - HTTP integration with the NestJS backend
 - Loading, empty and error states
@@ -507,6 +508,32 @@ the requester-specific review action or confirmation. Public review lists and
 summaries are fetched when opening the provider detail page; this submission
 flow does not update other open pages in real time.
 
+## Responsive account navigation
+
+At 1024px and above, the account name, request links and logout button are
+displayed directly, with the account toggle hidden. Below 1024px, the separate
+name paragraph is hidden and the toggle displays the account's full name.
+The provider link and account toggle occupy the same navigation row. For a
+signed-in account, `display: contents` lets the toggle and panel participate in
+the navigation grid without changing the HTML container. The expanded panel
+occupies a full-width second row. Anonymous sign-in links retain their container.
+
+At 420px and below, the provider link and account toggle use smaller text,
+horizontal padding and spacing. Width remains content-dependent so long names
+can wrap instead of being clipped. The existing site colors, active-link styling
+and unread badges are retained.
+
+The toggle exposes `aria-controls` and a signal-driven `aria-expanded` state;
+its caret and the panel's `is-open` class follow that state. Choosing the home,
+sent-request or received-request link closes the panel. Manual logout closes it
+before clearing the session and navigating to login. Escape closes the panel
+when focus is on the toggle or an action inside it; Escape from inside the
+panel also returns focus to the toggle. Other keys retain their existing
+behavior. Account changes and local session cleanup close the panel; a token
+renewal that preserves the current profile leaves its open state unchanged.
+These keyboard handlers and focus changes are covered by DOM tests;
+responsive visual layout still requires browser verification.
+
 ## Quality checks
 
 Run the tests once:
@@ -532,6 +559,5 @@ creates a production build.
 ## Planned improvements
 
 - Further visual and accessibility improvements
-- A mobile account menu with the authenticated user's name always visible
 - Real-time message notifications
 - Delayed email reminders for unread messages

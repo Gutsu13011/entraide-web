@@ -119,9 +119,112 @@ header nav .account-actions {
   margin-inline-start: auto;
 }
 
-@media (max-width: 40rem) {
+header nav .account-menu-toggle {
+  display: none;
+}
+
+header nav .account-menu-panel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (width < 1024px) {
+  header nav {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+  }
+
+  header nav > a {
+    justify-self: start;
+    min-width: 0;
+    max-width: 100%;
+  }
+
   header nav .account-actions {
-    width: 100%;
     margin-inline-start: 0;
+  }
+
+  header nav .account-actions:has(.account-menu-toggle) {
+    display: contents;
+  }
+
+  header nav .session-user {
+    display: none;
+  }
+
+  header nav .account-menu-toggle {
+    display: inline-flex;
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    gap: 0.625rem;
+    max-width: 100%;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  header nav .account-menu-toggle::after {
+    content: '';
+    flex-shrink: 0;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-top: -0.25rem;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+  }
+
+  header nav .account-menu-toggle[aria-expanded='true']::after {
+    margin-top: 0.25rem;
+    transform: rotate(225deg);
+  }
+
+  header nav .account-menu-panel {
+    display: none;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.75rem;
+    background-color: var(--color-surface);
+  }
+
+  header nav .account-menu-panel.is-open {
+    display: flex;
+  }
+
+  header nav .account-menu-panel a {
+    justify-content: space-between;
+    text-align: left;
+  }
+
+  header nav .account-menu-panel button {
+    justify-content: flex-start;
+    text-align: left;
+  }
+}
+
+@media (width <= 420px) {
+  header nav {
+    gap: 0.5rem;
+  }
+
+  header nav > a,
+  header nav .account-menu-toggle {
+    padding: 0.5rem 0.625rem;
+    font-size: 0.875rem;
+  }
+
+  header nav .account-menu-toggle {
+    gap: 0.375rem;
   }
 }
