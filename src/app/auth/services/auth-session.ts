@@ -17,7 +17,7 @@ import {
   Observable,
   shareReplay,
 } from 'rxjs';
-import { RxMethod, rxMethod } from '@ngrx/signals/rxjs-interop';
+import { rxMethod } from '@ngrx/signals/rxjs-interop';
 import { AuthStore } from './auth-store';
 import type { CurrentUserResponse, LoginRequest } from '../../models/auth.model';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -27,12 +27,14 @@ export type AuthSessionState = {
   currentUser: CurrentUserResponse | null;
   isLoading: boolean;
   errorMessage: string | null;
+  reauthenticationRequired: boolean;
 };
 const initialState: AuthSessionState = {
   accessToken: null,
   currentUser: null,
   isLoading: false,
   errorMessage: null,
+  reauthenticationRequired: false,
 };
 
 export const AuthSession = signalStore(
@@ -51,8 +53,18 @@ export const AuthSession = signalStore(
       patchState(store, initialState);
     }
 
+    function requiredReauthentication(): void {
+      clearSession();
+
+      patchState(store, {
+        reauthenticationRequired: true,
+        errorMessage: 'Votre session ne peut plus être utilisée. Veuillez vous reconnecter.',
+      });
+    }
+
     return {
       clearSession,
+      requiredReauthentication,
       renewAccessToken(): Observable<string> {
         return defer(() => {
           const previousAccessToken = store.accessToken();

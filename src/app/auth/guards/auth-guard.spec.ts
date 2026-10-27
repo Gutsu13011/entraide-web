@@ -34,12 +34,16 @@ describe('authGuard', () => {
     expect(executeGuardAction).toBe(true);
   });
 
-  it('should redirect unauthenticated users to login', () => {
-    const executeGuardAction = executeGuard(
-      new ActivatedRouteSnapshot(),
-      router.routerState.snapshot,
-    );
+  it.each([
+    '/service-requests/sent',
+    '/service-providers/7/service-offerings/12/service-requests/new',
+    '/service-requests/received?filter=pending&search=Alice%20Martin#latest',
+  ])('should preserve the complete destination %s when redirecting to login', (destination) => {
+    const state = router.routerState.snapshot;
+    state.url = destination;
+    const executeGuardAction = executeGuard(new ActivatedRouteSnapshot(), state);
 
-    expect(executeGuardAction).toEqual(router.parseUrl('/login'));
+    const loginUrl = `/login?returnUrl=${encodeURIComponent(destination)}`;
+    expect(executeGuardAction).toEqual(router.parseUrl(loginUrl));
   });
 });

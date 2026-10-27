@@ -51,13 +51,26 @@ describe('App routes', () => {
     httpTesting.verify();
   });
 
+  function expectLoginRedirect(destination: string) {
+    expect(router.url).toBe(`/login?returnUrl=${encodeURIComponent(destination)}`);
+    expect(router.parseUrl(router.url).queryParams['returnUrl']).toBe(destination);
+  }
+
+  it('should preserve destination query parameters and fragment without loading a private page', async () => {
+    const destination = '/service-requests/sent?filter=pending&search=Alice%20Martin#latest';
+    await harness.navigateByUrl(destination, LoginForm);
+
+    expectLoginRedirect(destination);
+    httpTesting.expectNone('http://localhost:3000/service-requests/sent');
+  });
+
   it('should redirect unauthenticated users from service request creation to login', async () => {
     await harness.navigateByUrl(
       '/service-providers/7/service-offerings/12/service-requests/new',
       LoginForm,
     );
 
-    expect(router.url).toBe('/login');
+    expectLoginRedirect('/service-providers/7/service-offerings/12/service-requests/new');
   });
 
   it('should allow authenticated users to create a service request and preserve both route ids', async () => {
@@ -90,22 +103,22 @@ describe('App routes', () => {
 
   it('should redirect unauthenticated users from provider creation to login', async () => {
     await harness.navigateByUrl('/service-providers/new', LoginForm);
-    expect(router.url).toBe('/login');
+    expectLoginRedirect('/service-providers/new');
   });
 
   it('should redirect unauthenticated users from provider editing to login', async () => {
     await harness.navigateByUrl('/service-providers/7/edit', LoginForm);
-    expect(router.url).toBe('/login');
+    expectLoginRedirect('/service-providers/7/edit');
   });
 
   it('should redirect unauthenticated users from offering editing to login', async () => {
     await harness.navigateByUrl('/service-providers/7/service-offerings/2/edit', LoginForm);
-    expect(router.url).toBe('/login');
+    expectLoginRedirect('/service-providers/7/service-offerings/2/edit');
   });
 
   it('should redirect unauthenticated users from offering creation to login', async () => {
     await harness.navigateByUrl('/service-providers/7/service-offerings/new', LoginForm);
-    expect(router.url).toBe('/login');
+    expectLoginRedirect('/service-providers/7/service-offerings/new');
   });
 
   describe('request navigation from an offering', () => {
@@ -156,7 +169,7 @@ describe('App routes', () => {
       await harness.fixture.whenStable();
       harness.detectChanges();
 
-      expect(router.url).toBe('/login');
+      expectLoginRedirect('/service-providers/7/service-offerings/12/service-requests/new');
       expect(harness.routeNativeElement?.querySelector('h2')?.textContent?.trim()).toBe(
         'Connexion',
       );
@@ -221,7 +234,7 @@ describe('App routes', () => {
       async (direction) => {
         await harness.navigateByUrl(`/service-requests/${direction}`, LoginForm);
 
-        expect(router.url).toBe('/login');
+        expectLoginRedirect(`/service-requests/${direction}`);
         httpTesting.expectNone('http://localhost:3000/service-requests/sent');
         httpTesting.expectNone('http://localhost:3000/service-requests/received');
       },

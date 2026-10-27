@@ -23,6 +23,7 @@ describe('App', () => {
   };
   const authSessionStub = {
     currentUser: signal<CurrentUserResponse | null>(null),
+    reauthenticationRequired: signal(false),
     logout: vi.fn(),
   };
 
@@ -32,6 +33,7 @@ describe('App', () => {
     unreadStoreStub.reset.mockReset().mockImplementation(() => unreadStoreStub.counts.set(null));
     unreadStoreStub.refresh.mockReset();
     authSessionStub.currentUser.set(null);
+    authSessionStub.reauthenticationRequired.set(false);
     authSessionStub.logout.mockReset();
 
     await TestBed.configureTestingModule({
@@ -110,6 +112,7 @@ describe('App', () => {
 
     it('should show both private request links with the correct destinations when signed in', () => {
       authSessionStub.currentUser.set(user);
+      authSessionStub.reauthenticationRequired.set(false);
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
       const element = fixture.nativeElement as HTMLElement;
@@ -166,6 +169,7 @@ describe('App request navigation', () => {
   };
   const authSessionStub = {
     currentUser: signal<CurrentUserResponse | null>(null),
+    reauthenticationRequired: signal(false),
     isAuthenticated: signal(false),
     isLoading: signal(false),
     errorMessage: signal<string | null>(null),
@@ -227,6 +231,7 @@ describe('App request navigation', () => {
     authSessionStub.login.mockReset();
     authSessionStub.logout.mockReset().mockImplementation(() => {
       authSessionStub.currentUser.set(null);
+      authSessionStub.reauthenticationRequired.set(false);
       authSessionStub.isAuthenticated.set(false);
     });
     await TestBed.configureTestingModule({
@@ -314,6 +319,7 @@ describe('App request navigation', () => {
 
   it('should move the active navigation class and aria-current between login and registration for anonymous visitors', async () => {
     authSessionStub.currentUser.set(null);
+    authSessionStub.reauthenticationRequired.set(false);
     authSessionStub.isAuthenticated.set(false);
     fixture.detectChanges();
 
@@ -397,9 +403,10 @@ describe('App unread message session synchronization', () => {
   };
   const authSessionStub = {
     currentUser: signal<CurrentUserResponse | null>(null),
+    reauthenticationRequired: signal(false),
     accessToken: signal<string | null>(null),
     logout: vi.fn(),
-    clearSession: vi.fn(),
+    requiredReauthentication: vi.fn(),
     renewAccessToken: vi.fn(),
   };
   let fixture: ComponentFixture<App>;
@@ -415,16 +422,21 @@ describe('App unread message session synchronization', () => {
 
   beforeEach(async () => {
     authSessionStub.currentUser.set(null);
+    authSessionStub.reauthenticationRequired.set(false);
     authSessionStub.accessToken.set(null);
     const resetLocal = () => {
       authSessionStub.currentUser.set(null);
+      authSessionStub.reauthenticationRequired.set(false);
       authSessionStub.accessToken.set(null);
     };
     authSessionStub.renewAccessToken
       .mockReset()
       .mockImplementation(() => throwError(() => new HttpErrorResponse({ status: 401 })));
     authSessionStub.logout.mockReset().mockImplementation(resetLocal);
-    authSessionStub.clearSession.mockReset().mockImplementation(resetLocal);
+    authSessionStub.requiredReauthentication.mockReset().mockImplementation(() => {
+      resetLocal();
+      authSessionStub.reauthenticationRequired.set(true);
+    });
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [
@@ -555,7 +567,7 @@ describe('App unread message session synchronization', () => {
     expect(countsStore.isLoading()).toBe(false);
     expect(countsStore.errorMessage()).toBeNull();
     expect(authSessionStub.renewAccessToken).toHaveBeenCalledTimes(1);
-    expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+    expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
     expect(authSessionStub.logout).not.toHaveBeenCalled();
     httpTesting.expectNone(url);
   });
@@ -566,7 +578,7 @@ describe('App unread message session synchronization', () => {
     pending.flush({ message: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
     fixture.detectChanges();
 
-    expect(authSessionStub.clearSession).toHaveBeenCalledTimes(1);
+    expect(authSessionStub.requiredReauthentication).toHaveBeenCalledTimes(1);
     expect(authSessionStub.logout).not.toHaveBeenCalled();
     expect(authSessionStub.currentUser()).toBeNull();
     expect(countsStore.counts()).toBeNull();
@@ -584,7 +596,7 @@ describe('App unread message session synchronization', () => {
 
     expect(authSessionStub.currentUser()).toEqual(userA);
     expect(authSessionStub.logout).not.toHaveBeenCalled();
-    expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+    expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
     expect(countsStore.errorMessage()).toBe('Impossible de charger les compteurs de messages.');
     expect(countsStore.counts()).toBeNull();
     httpTesting.expectNone(url);
@@ -795,7 +807,7 @@ describe('App unread message session synchronization', () => {
         TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
         vi.advanceTimersByTime(90_000);
 
-        expect(authSessionStub.clearSession).toHaveBeenCalledTimes(1);
+        expect(authSessionStub.requiredReauthentication).toHaveBeenCalledTimes(1);
         expect(authSessionStub.logout).not.toHaveBeenCalled();
         expect(authSessionStub.currentUser()).toBeNull();
         expect(countsStore.counts()).toBeNull();
@@ -963,7 +975,7 @@ describe('App unread message session synchronization', () => {
       expect(countsStore.errorMessage()).toBe('Impossible de charger les compteurs de messages.');
       expect(authSessionStub.currentUser()).toEqual(userA);
       expect(authSessionStub.logout).not.toHaveBeenCalled();
-      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+      expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(30_000);
       const retry = httpTesting.expectOne(url);
@@ -1048,7 +1060,7 @@ describe('App unread message session synchronization', () => {
       vi.advanceTimersByTime(90_000);
       fixture.detectChanges();
 
-      expect(authSessionStub.clearSession).toHaveBeenCalledTimes(1);
+      expect(authSessionStub.requiredReauthentication).toHaveBeenCalledTimes(1);
       expect(authSessionStub.logout).not.toHaveBeenCalled();
       expect(authSessionStub.currentUser()).toBeNull();
       expect(countsStore.counts()).toBeNull();

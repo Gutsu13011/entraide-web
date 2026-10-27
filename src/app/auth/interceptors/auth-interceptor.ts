@@ -38,7 +38,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
           isSameSession() &&
           authSession.accessToken() === token
         ) {
-          authSession.clearSession();
+          authSession.requiredReauthentication();
         }
 
         return throwError(() => error);
@@ -63,7 +63,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       return tokenSource.pipe(
         catchError((renewalError) => {
           if (isSameSession() && authSession.accessToken() === accessToken) {
-            authSession.clearSession();
+            authSession.requiredReauthentication();
           }
 
           return throwError(() => renewalError);

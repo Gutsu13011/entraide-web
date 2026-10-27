@@ -44,10 +44,11 @@ service.
 - Account registration through a validated reactive form
 - Login and logout, with the authenticated user's name displayed in the header
 - Shared authentication state managed with NgRx SignalStore
-- Automatic navigation to the provider list after successful login
+- Return to the requested internal page after login, with the provider list as fallback
 - Automatic bearer token attachment to requests targeting the backend API
 - Persistent login restored at startup through an HttpOnly refresh cookie
 - Shared token renewal and one automatic retry after an authenticated API request returns 401
+- Reauthentication message and login redirect preserving the current page when renewal fails
 - Authentication guards for provider and service offering creation and editing pages, request creation and request lists
 
 ## Project status
@@ -185,7 +186,17 @@ this helper; the interceptor handles renewal failure and request retries.
 
 Creating or editing a service provider or service offering, sending a service
 request, and viewing sent or received request lists require login.
-Unauthenticated visitors opening these pages are redirected to login.
+Unauthenticated visitors opening these pages are redirected to login. The guard
+preserves the complete requested URL, including query parameters and fragment,
+in the login URL's `returnUrl` query parameter. The login form reads this value
+when it is created and, after successful authentication, navigates to the parsed
+internal destination with `replaceUrl: true`. Query parameters and fragments are
+preserved. Missing or empty values, external or relative URLs, paths containing
+backslashes, and paths whose first primary segment is `login` or `register` fall
+back to `/`. Angular's URL parser also falls back to `/` for malformed encoding.
+This validation does not check whether every supplied internal route exists.
+A failed login stays on the form and keeps the destination for another attempt.
+Runtime session loss uses the same return destination mechanism.
 
 An HTTP interceptor attaches the session's access token to requests targeting
 `http://localhost:3000`, while preserving any existing Authorization header.
@@ -203,13 +214,26 @@ already-renewed token when the profile still identifies the same local session.
 Retry preserves the original method, URL, body, headers and cookie options,
 replacing only the automatically attached Authorization value.
 
-Renewal errors, including network failures and the ten-second timeout, clear
-local identity if the original session is still current and are forwarded to
-the caller. A retried request that also returns 401 clears its current local
-session without starting another renewal. Other retry errors are forwarded
-without clearing authentication. Cleanup calls `AuthSession.clearSession()`;
-it does not call server logout or revoke the refresh cookie. No automatic
-navigation occurs.
+Renewal errors, including network failures and the ten-second timeout, request
+reauthentication if the original session is still current and are forwarded to
+the caller. A retried request that also returns 401 requests reauthentication
+without starting another renewal. Other retry errors are forwarded without
+clearing authentication.
+
+`AuthSession.requiredReauthentication()` clears local identity, cancels pending
+authentication work, sets `reauthenticationRequired` and exposes a reconnect
+message through `errorMessage`. It does not call server logout or revoke the
+refresh cookie. The root component observes this flag and navigates to login
+with the current page in `returnUrl` and `replaceUrl: true`. Existing login and
+registration pages retain their URL. Navigation stays centralized even when
+multiple requests share a failed renewal.
+
+Starting login, manual logout, ordinary local cleanup or startup restoration
+resets the flag. Manual logout keeps its explicit login navigation and does not
+show a reauthentication message. Ordinary anonymous visits still use the guard
+without an expired-session message. A failed reconnection preserves the return
+destination for another attempt; successful reconnection opens it and restarts
+the account's unread-count polling.
 
 Local cleanup, logout and a new login cancel pending renewal. Requests from an
 older login are not replayed in the new session, including a later login to the
@@ -508,8 +532,6 @@ creates a production build.
 ## Planned improvements
 
 - Further visual and accessibility improvements
-- A session expiry notification and return to login
 - A mobile account menu with the authenticated user's name always visible
-- Login redirection using `replaceUrl: true` to improve browser back navigation
 - Real-time message notifications
 - Delayed email reminders for unread messages

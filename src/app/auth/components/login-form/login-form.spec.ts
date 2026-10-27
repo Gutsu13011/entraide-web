@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { LoginForm } from './login-form';
 import { AuthSession } from '../../services/auth-session';
 import { signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
 
 describe('LoginForm', () => {
   const authSessionStub = {
@@ -11,9 +11,8 @@ describe('LoginForm', () => {
     errorMessage: signal<string | null>(null),
     isAuthenticated: signal<boolean>(false),
   };
-  const routerStub = {
-    navigate: vi.fn(),
-  };
+  const routeStub = { snapshot: { queryParamMap: convertToParamMap({}) } };
+  let router: Router;
 
   let component: LoginForm;
   let fixture: ComponentFixture<LoginForm>;
@@ -23,16 +22,19 @@ describe('LoginForm', () => {
     authSessionStub.isLoading.set(false);
     authSessionStub.errorMessage.set(null);
     authSessionStub.isAuthenticated.set(false);
-    routerStub.navigate.mockReset();
+    routeStub.snapshot.queryParamMap = convertToParamMap({});
 
     await TestBed.configureTestingModule({
       imports: [LoginForm],
       providers: [
         { provide: AuthSession, useValue: authSessionStub },
-        { provide: Router, useValue: routerStub },
+        provideRouter([]),
+        { provide: ActivatedRoute, useValue: routeStub },
       ],
     }).compileComponents();
 
+    router = TestBed.inject(Router);
+    vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
     fixture = TestBed.createComponent(LoginForm);
     component = fixture.componentInstance;
     await fixture.whenStable();
@@ -105,12 +107,94 @@ describe('LoginForm', () => {
     expect(errorMessage.textContent).toBe('Connexion impossible. Veuillez réessayer.');
   });
 
-  it('should navigate to providers when the session becomes authenticated', async () => {
-    expect(routerStub.navigate).not.toHaveBeenCalled();
+  async function openLoginWithDestination(destination: string | null) {
+    fixture.destroy();
+    routeStub.snapshot.queryParamMap = convertToParamMap(
+      destination === null ? {} : { returnUrl: destination },
+    );
+    fixture = TestBed.createComponent(LoginForm);
+    component = fixture.componentInstance;
+    await fixture.whenStable();
+  }
+
+  it.each([
+    '/service-requests/sent',
+    '/service-requests/received?filter=pending&search=Alice%20Martin#latest',
+    '/service-providers/7/service-offerings/12/service-requests/new',
+    '/',
+  ])(
+    'should navigate to the internal destination %s only after authentication',
+    async (destination) => {
+      await openLoginWithDestination(destination);
+      expect(router.navigateByUrl).not.toHaveBeenCalled();
+
+      authSessionStub.isAuthenticated.set(true);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(router.navigateByUrl).toHaveBeenCalledExactlyOnceWith(router.parseUrl(destination), {
+        replaceUrl: true,
+      });
+    },
+  );
+
+  it.each([
+    { label: 'an absent destination', destination: null },
+    { label: 'an empty destination', destination: '' },
+    { label: 'an external URL', destination: 'https://example.test/service-requests/sent' },
+    { label: 'a protocol-relative URL', destination: '//example.test/service-requests/sent' },
+    { label: 'a relative path', destination: 'service-requests/sent' },
+    { label: 'a path containing a backslash', destination: '/service-requests\\sent' },
+    { label: 'the login page', destination: '/login' },
+    {
+      label: 'login with query parameters',
+      destination: '/login?returnUrl=%2Fservice-requests%2Fsent',
+    },
+    { label: 'login with matrix parameters', destination: '/login;source=test#form' },
+    { label: 'an encoded login path', destination: '/%6Cogin' },
+    { label: 'login in the explicit primary outlet', destination: '/(primary:login)' },
+    { label: 'the registration page', destination: '/register?source=test' },
+    { label: 'malformed percent encoding', destination: '/service-requests/%' },
+  ])('should fall back to home for $label', async ({ destination }) => {
+    await openLoginWithDestination(destination);
     authSessionStub.isAuthenticated.set(true);
     fixture.detectChanges();
     await fixture.whenStable();
-    expect(routerStub.navigate).toHaveBeenCalledTimes(1);
-    expect(routerStub.navigate).toHaveBeenCalledWith(['/']);
+
+    expect(router.navigateByUrl).toHaveBeenCalledExactlyOnceWith(router.parseUrl('/'), {
+      replaceUrl: true,
+    });
+  });
+
+  it('should remain on login after failure and retain the requested destination for a successful retry', async () => {
+    const destination = '/service-requests/sent?filter=pending#latest';
+    await openLoginWithDestination(destination);
+    component.loginForm.setValue({ email: 'alice@example.test', password: 'test-only-password' });
+    component.onSubmit();
+    authSessionStub.errorMessage.set('Connexion impossible. Veuillez réessayer.');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(router.navigateByUrl).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain(
+      'Connexion impossible',
+    );
+
+    component.onSubmit();
+    authSessionStub.isAuthenticated.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(authSessionStub.login).toHaveBeenCalledTimes(2);
+    expect(router.navigateByUrl).toHaveBeenCalledExactlyOnceWith(router.parseUrl(destination), {
+      replaceUrl: true,
+    });
+  });
+
+  it('should navigate to providers when the session becomes authenticated', async () => {
+    expect(router.navigateByUrl).not.toHaveBeenCalled();
+    authSessionStub.isAuthenticated.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(router.navigateByUrl).toHaveBeenCalledTimes(1);
+    expect(router.navigateByUrl).toHaveBeenCalledWith(router.parseUrl('/'), { replaceUrl: true });
   });
 });

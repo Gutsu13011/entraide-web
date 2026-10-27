@@ -1,7 +1,7 @@
 import { Component, effect, inject } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AuthSession } from '../../services/auth-session';
-import { Router } from '@angular/router';
+import { ActivatedRoute, PRIMARY_OUTLET, Router, UrlTree } from '@angular/router';
 
 @Component({
   imports: [ReactiveFormsModule],
@@ -13,12 +13,14 @@ export class LoginForm {
   constructor() {
     effect(() => {
       if (this.authSession.isAuthenticated()) {
-        this.router.navigate(['/']);
+        this.router.navigateByUrl(this.getReturnUrl(), { replaceUrl: true });
       }
     });
   }
 
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly requestReturnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
 
   readonly authSession = inject(AuthSession);
   readonly loginForm = new FormGroup({
@@ -31,6 +33,29 @@ export class LoginForm {
       nonNullable: true,
     }),
   });
+
+  private getReturnUrl(): UrlTree {
+    const fallback = this.router.parseUrl('/');
+    const destination = this.requestReturnUrl;
+
+    if (
+      !destination ||
+      !destination.startsWith('/') ||
+      destination.startsWith('//') ||
+      destination.includes('\\')
+    ) {
+      return fallback;
+    }
+
+    const target = this.router.parseUrl(destination);
+    const firstSegment = target.root.children[PRIMARY_OUTLET]?.segments[0]?.path;
+
+    if (firstSegment === 'login' || firstSegment === 'register') {
+      return fallback;
+    }
+
+    return target;
+  }
 
   onSubmit(): void {
     if (this.loginForm.invalid) {

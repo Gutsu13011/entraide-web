@@ -1,7 +1,7 @@
 import { ApplicationInitStatus } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { Router } from '@angular/router';
+import { Router, UrlTree } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { appConfig } from './app.config';
 import { AuthSession } from './auth/services/auth-session';
@@ -88,9 +88,56 @@ describe('Application session initialization', () => {
       expect(app.session.errorMessage()).toBeNull();
       const harness = await RouterTestingHarness.create();
       await harness.navigateByUrl('/service-requests/sent', LoginForm);
-      expect(TestBed.inject(Router).url).toBe('/login');
+      expect(TestBed.inject(Router).url).toBe('/login?returnUrl=%2Fservice-requests%2Fsent');
       app.http.expectNone(sentUrl);
       app.http.expectNone(`${url}/logout`);
+    },
+  );
+
+  it.each([
+    { direction: 'sent', failFirstLogin: false },
+    { direction: 'received', failFirstLogin: true },
+  ])(
+    'should return to the protected $direction URL after login and preserve its query and fragment',
+    async ({ direction, failFirstLogin }) => {
+      const app = start();
+      app.http.expectOne(`${url}/refresh`).flush(null, { status: 401, statusText: 'Unauthorized' });
+      await app.status.donePromise;
+      const harness = await RouterTestingHarness.create();
+      const router = TestBed.inject(Router);
+      const destination = `/service-requests/${direction}?filter=pending&search=Alice%20Martin#latest`;
+      const form = await harness.navigateByUrl(destination, LoginForm);
+      expect(router.parseUrl(router.url).queryParams['returnUrl']).toBe(destination);
+      const navigate = vi.spyOn(router, 'navigateByUrl');
+      const credentials = { email: user.email, password: 'test-only-password' };
+      form.loginForm.setValue(credentials);
+      form.onSubmit();
+
+      if (failFirstLogin) {
+        app.http.expectOne(`${url}/login`).flush(null, { status: 401, statusText: 'Unauthorized' });
+        harness.detectChanges();
+        expect(app.session.isAuthenticated()).toBe(false);
+        expect(router.parseUrl(router.url).queryParams['returnUrl']).toBe(destination);
+        expect(navigate).not.toHaveBeenCalled();
+        form.onSubmit();
+      }
+
+      app.http.expectOne(`${url}/login`).flush({ accessToken: 'login-token' });
+      app.http.expectOne(`${url}/me`).flush(user);
+      harness.detectChanges();
+      await harness.fixture.whenStable();
+
+      expect(router.url).toBe(destination);
+      const [target, options] = navigate.mock.calls.at(-1)!;
+      expect(target).toBeInstanceOf(UrlTree);
+      expect(router.serializeUrl(target as UrlTree)).toBe(destination);
+      expect(options).toEqual({ replaceUrl: true });
+      const requests = app.http.expectOne(`http://localhost:3000/service-requests/${direction}`);
+      expect(requests.request.headers.get('Authorization')).toBe('Bearer login-token');
+      requests.flush([]);
+      expect(app.session.isAuthenticated()).toBe(true);
+      app.http.expectNone(`${url}/refresh`);
+      navigate.mockRestore();
     },
   );
 
@@ -163,7 +210,7 @@ describe('Application session initialization', () => {
     await harness.navigateByUrl('/service-requests/sent', LoginForm);
 
     expect(reloaded.session.isAuthenticated()).toBe(false);
-    expect(TestBed.inject(Router).url).toBe('/login');
+    expect(TestBed.inject(Router).url).toBe('/login?returnUrl=%2Fservice-requests%2Fsent');
     reloaded.http.expectNone(sentUrl);
   });
 });

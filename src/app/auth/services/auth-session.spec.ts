@@ -43,6 +43,7 @@ describe('AuthSession', () => {
     expect(service.isLoading()).toBe(false);
     expect(service.errorMessage()).toBe(null);
     expect(service.isAuthenticated()).toBe(false);
+    expect(service.reauthenticationRequired()).toBe(false);
   });
 
   it('should enter loading state when login starts', () => {
@@ -284,6 +285,143 @@ describe('AuthSession', () => {
       expect(service.accessToken()).toBe('test-access-token');
     });
   });
+  describe('requiredReauthentication', () => {
+    const credentials = { email: 'alice@example.test', password: 'test-only-password' };
+    const user: CurrentUserResponse = {
+      id: 7,
+      firstName: 'Alice',
+      lastName: 'Martin',
+      email: credentials.email,
+    };
+    const message = 'Votre session ne peut plus être utilisée. Veuillez vous reconnecter.';
+
+    function signIn() {
+      authStoreStub.login.mockReturnValue(of({ accessToken: 'previous-token' }));
+      authStoreStub.getCurrentUser.mockReturnValue(of(user));
+      service.login(credentials);
+    }
+
+    afterEach(() => service.clearSession());
+
+    it('should clear the active identity, request reauthentication and expose its message without server logout', () => {
+      signIn();
+      service.requiredReauthentication();
+
+      expect(service.accessToken()).toBeNull();
+      expect(service.currentUser()).toBeNull();
+      expect(service.isAuthenticated()).toBe(false);
+      expect(service.isLoading()).toBe(false);
+      expect(service.reauthenticationRequired()).toBe(true);
+      expect(service.errorMessage()).toBe(message);
+      expect(authStoreStub.logout).not.toHaveBeenCalled();
+    });
+
+    it('should cancel every shared renewal subscriber before marking reauthentication as required', () => {
+      signIn();
+      const pending = new Subject<LoginResponse>();
+      authStoreStub.refresh.mockReturnValue(pending.asObservable());
+      const firstComplete = vi.fn();
+      const secondComplete = vi.fn();
+      const next = vi.fn();
+      service.renewAccessToken().subscribe({ next, complete: firstComplete });
+      service.renewAccessToken().subscribe({ next, complete: secondComplete });
+      expect(pending.observed).toBe(true);
+
+      service.requiredReauthentication();
+
+      expect(pending.observed).toBe(false);
+      expect(firstComplete).toHaveBeenCalledTimes(1);
+      expect(secondComplete).toHaveBeenCalledTimes(1);
+      pending.next({ accessToken: 'late-token' });
+      pending.complete();
+      expect(next).not.toHaveBeenCalled();
+      expect(service.reauthenticationRequired()).toBe(true);
+      expect(service.accessToken()).toBeNull();
+      expect(service.errorMessage()).toBe(message);
+    });
+
+    it.each(['login', 'profile'] as const)(
+      'should cancel a pending %s and prevent late identity restoration',
+      (phase) => {
+        const pendingLogin = new Subject<LoginResponse>();
+        const pendingProfile = new Subject<CurrentUserResponse>();
+        authStoreStub.login.mockReturnValue(pendingLogin.asObservable());
+        authStoreStub.getCurrentUser.mockReturnValue(pendingProfile.asObservable());
+        service.login(credentials);
+        if (phase === 'profile') pendingLogin.next({ accessToken: 'pending-token' });
+        expect(phase === 'login' ? pendingLogin.observed : pendingProfile.observed).toBe(true);
+
+        service.requiredReauthentication();
+
+        expect(pendingLogin.observed).toBe(false);
+        expect(pendingProfile.observed).toBe(false);
+        pendingLogin.next({ accessToken: 'late-token' });
+        pendingProfile.next(user);
+        pendingLogin.complete();
+        pendingProfile.complete();
+        expect(service.isAuthenticated()).toBe(false);
+        expect(service.isLoading()).toBe(false);
+        expect(service.reauthenticationRequired()).toBe(true);
+        expect(service.errorMessage()).toBe(message);
+      },
+    );
+
+    it('should reset the reauthentication requirement and message during ordinary local cleanup', () => {
+      service.requiredReauthentication();
+      service.clearSession();
+      expect(service.reauthenticationRequired()).toBe(false);
+      expect(service.errorMessage()).toBeNull();
+      expect(authStoreStub.logout).not.toHaveBeenCalled();
+    });
+
+    it('should reset the requirement when a new login starts and keep it reset after success', () => {
+      service.requiredReauthentication();
+      const pending = new Subject<LoginResponse>();
+      authStoreStub.login.mockReturnValue(pending.asObservable());
+      authStoreStub.getCurrentUser.mockReturnValue(of(user));
+      service.login(credentials);
+      expect(service.reauthenticationRequired()).toBe(false);
+      expect(service.errorMessage()).toBeNull();
+      expect(service.isLoading()).toBe(true);
+
+      pending.next({ accessToken: 'new-login-token' });
+      pending.complete();
+      expect(service.reauthenticationRequired()).toBe(false);
+      expect(service.isAuthenticated()).toBe(true);
+      expect(service.accessToken()).toBe('new-login-token');
+    });
+
+    it('should reset the requirement on manual logout while the server request is pending', () => {
+      service.requiredReauthentication();
+      const pending = new Subject<void>();
+      authStoreStub.logout.mockReturnValue(pending.asObservable());
+      service.logout();
+      expect(service.reauthenticationRequired()).toBe(false);
+      expect(service.errorMessage()).toBeNull();
+      expect(service.isLoading()).toBe(true);
+      expect(authStoreStub.logout).toHaveBeenCalledTimes(1);
+      pending.next();
+      pending.complete();
+      expect(service.reauthenticationRequired()).toBe(false);
+      expect(service.isLoading()).toBe(false);
+    });
+
+    it('should reset the requirement when restoration starts and retain the restored identity on success', () => {
+      service.requiredReauthentication();
+      const pending = new Subject<LoginResponse>();
+      authStoreStub.refresh.mockReturnValue(pending.asObservable());
+      authStoreStub.getCurrentUser.mockReturnValue(of(user));
+      service.restore().subscribe();
+      expect(service.reauthenticationRequired()).toBe(false);
+      expect(service.errorMessage()).toBeNull();
+
+      pending.next({ accessToken: 'restored-token' });
+      pending.complete();
+      expect(service.isAuthenticated()).toBe(true);
+      expect(service.reauthenticationRequired()).toBe(false);
+    });
+  });
+
   describe('renewAccessToken', () => {
     const credentials = { email: 'alice@example.test', password: 'test-only-password' };
     const user: CurrentUserResponse = {
@@ -988,6 +1126,10 @@ describe('AuthSession HTTP authentication integration', () => {
         }
         expect(session.accessToken()).toBeNull();
         expect(session.currentUser()).toBeNull();
+        expect(session.reauthenticationRequired()).toBe(true);
+        expect(session.errorMessage()).toBe(
+          'Votre session ne peut plus être utilisée. Veuillez vous reconnecter.',
+        );
         http.expectNone(`${url}/refresh`);
         http.expectNone(`${url}/logout`);
         http.expectNone(firstUrl);
@@ -1010,6 +1152,7 @@ describe('AuthSession HTTP authentication integration', () => {
 
         expect(error).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status }));
         expect(session.isAuthenticated()).toBe(status !== 401);
+        expect(session.reauthenticationRequired()).toBe(status === 401);
         http.expectNone(`${url}/refresh`);
         http.expectNone(`${url}/logout`);
         http.expectNone(firstUrl);
@@ -1090,6 +1233,7 @@ describe('AuthSession HTTP authentication integration', () => {
         );
         expect(refresh.cancelled).toBe(true);
         expect(session.isAuthenticated()).toBe(false);
+        expect(session.reauthenticationRequired()).toBe(true);
         http.expectNone(firstUrl);
         http.expectNone(`${url}/logout`);
       } finally {

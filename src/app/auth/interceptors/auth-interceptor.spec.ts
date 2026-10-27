@@ -23,7 +23,9 @@ describe('authInterceptor', () => {
     accessToken: signal<string | null>('fake-token'),
     currentUser: signal<CurrentUserResponse | null>(user),
     renewAccessToken: vi.fn(),
+    requiredReauthentication: vi.fn(),
     clearSession: vi.fn(),
+    reauthenticationRequired: signal(false),
     logout: vi.fn(),
   };
 
@@ -33,6 +35,8 @@ describe('authInterceptor', () => {
   beforeEach(() => {
     authSessionStub.accessToken.set('fake-token');
     authSessionStub.currentUser.set(user);
+    authSessionStub.reauthenticationRequired.set(false);
+    authSessionStub.clearSession.mockReset();
     authSessionStub.renewAccessToken
       .mockReset()
       .mockImplementation(() =>
@@ -41,9 +45,10 @@ describe('authInterceptor', () => {
         ),
       );
     authSessionStub.logout.mockReset();
-    authSessionStub.clearSession.mockReset().mockImplementation(() => {
+    authSessionStub.requiredReauthentication.mockReset().mockImplementation(() => {
       authSessionStub.accessToken.set(null);
       authSessionStub.currentUser.set(null);
+      authSessionStub.reauthenticationRequired.set(true);
     });
 
     TestBed.configureTestingModule({
@@ -60,6 +65,7 @@ describe('authInterceptor', () => {
   afterEach(() => {
     httpTesting.verify();
     expect(authSessionStub.logout).not.toHaveBeenCalled();
+    expect(authSessionStub.clearSession).not.toHaveBeenCalled();
   });
 
   it('should add a bearer token to requests targeting the API', () => {
@@ -108,7 +114,7 @@ describe('authInterceptor', () => {
       expect(request.request.headers.has('Authorization')).toBe(false);
       request.flush({});
       expect(authSessionStub.accessToken()).toBe('fake-token');
-      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+      expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
     });
 
     it.each(paths)(
@@ -126,7 +132,7 @@ describe('authInterceptor', () => {
         expect(error).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({ status: 401, error: body }),
         );
-        expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+        expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
         expect(authSessionStub.accessToken()).toBe('fake-token');
         httpTesting.expectNone(url);
       },
@@ -147,7 +153,7 @@ describe('authInterceptor', () => {
 
         request.flush(null, { status: 401, statusText: 'Unauthorized' });
 
-        expect(authSessionStub.clearSession).toHaveBeenCalledOnce();
+        expect(authSessionStub.requiredReauthentication).toHaveBeenCalledOnce();
         expect(authSessionStub.accessToken()).toBeNull();
         expect(error).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
       },
@@ -165,12 +171,12 @@ describe('authInterceptor', () => {
         'http://localhost:3000/service-providers/7/service-offerings/12',
       );
       expect(request.request.headers.get('Authorization')).toBe('Bearer fake-token');
-      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+      expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
       const body = { message: 'Unauthorized' };
 
       request.flush(body, { status: 401, statusText: 'Unauthorized' });
 
-      expect(authSessionStub.clearSession).toHaveBeenCalledTimes(1);
+      expect(authSessionStub.requiredReauthentication).toHaveBeenCalledTimes(1);
       expect(authSessionStub.accessToken()).toBeNull();
       expect(nextSpy).not.toHaveBeenCalled();
       expect(errorSpy).toHaveBeenCalledExactlyOnceWith(expect.any(HttpErrorResponse));
@@ -190,7 +196,7 @@ describe('authInterceptor', () => {
 
         request.flush(body, { status, statusText });
 
-        expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+        expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
         expect(authSessionStub.accessToken()).toBe('fake-token');
         expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({ status, error: body }),
@@ -211,7 +217,7 @@ describe('authInterceptor', () => {
 
       request.flush(null, { status: 401, statusText: 'Unauthorized' });
 
-      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+      expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
       expect(authSessionStub.accessToken()).toBe(currentToken);
       expect(errorSpy).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
     });
@@ -229,7 +235,7 @@ describe('authInterceptor', () => {
       firstRequest.flush(null, { status: 401, statusText: 'Unauthorized' });
       secondRequest.flush(null, { status: 401, statusText: 'Unauthorized' });
 
-      expect(authSessionStub.clearSession).toHaveBeenCalledTimes(1);
+      expect(authSessionStub.requiredReauthentication).toHaveBeenCalledTimes(1);
       expect(authSessionStub.accessToken()).toBeNull();
       expect(firstErrorSpy).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ status: 401 }),
@@ -277,7 +283,7 @@ describe('authInterceptor', () => {
 
         request.flush(null, { status: 401, statusText: 'Unauthorized' });
 
-        expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+        expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
         expect(authSessionStub.accessToken()).toBe(token);
         expect(errorSpy).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
       },
@@ -318,7 +324,7 @@ describe('authInterceptor', () => {
       retry.flush({ id: 7, ...body });
       expect(next).toHaveBeenCalledExactlyOnceWith({ id: 7, ...body });
       expect(authSessionStub.renewAccessToken).toHaveBeenCalledTimes(1);
-      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+      expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
       expect(authSessionStub.currentUser()).toBe(user);
     });
 
@@ -335,7 +341,7 @@ describe('authInterceptor', () => {
       retry.flush({ id: 7 });
       expect(next).toHaveBeenCalledExactlyOnceWith({ id: 7 });
       expect(authSessionStub.renewAccessToken).not.toHaveBeenCalled();
-      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+      expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
     });
 
     it.each([401, 403, 500])(
@@ -350,7 +356,9 @@ describe('authInterceptor', () => {
 
         expect(authSessionStub.renewAccessToken).toHaveBeenCalledTimes(1);
         expect(error).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status }));
-        expect(authSessionStub.clearSession).toHaveBeenCalledTimes(status === 401 ? 1 : 0);
+        expect(authSessionStub.requiredReauthentication).toHaveBeenCalledTimes(
+          status === 401 ? 1 : 0,
+        );
         expect(authSessionStub.accessToken()).toBe(status === 401 ? null : 'renewed-token');
         httpTesting.expectNone(url);
       },
@@ -363,7 +371,7 @@ describe('authInterceptor', () => {
       httpTesting.expectOne(url).flush(null, { status: 401, statusText: 'Unauthorized' });
       httpTesting.expectOne(url).error(new ProgressEvent('error'));
       expect(error).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 0 }));
-      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+      expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
       expect(authSessionStub.renewAccessToken).toHaveBeenCalledTimes(1);
     });
 
@@ -377,7 +385,7 @@ describe('authInterceptor', () => {
         httpTesting.expectOne(url).flush(null, { status: 401, statusText: 'Unauthorized' });
 
         expect(error).toHaveBeenCalledExactlyOnceWith(failure);
-        expect(authSessionStub.clearSession).toHaveBeenCalledTimes(1);
+        expect(authSessionStub.requiredReauthentication).toHaveBeenCalledTimes(1);
         expect(authSessionStub.currentUser()).toBeNull();
         httpTesting.expectNone(url);
       },
@@ -390,7 +398,7 @@ describe('authInterceptor', () => {
       http.get(url).subscribe({ error });
       httpTesting.expectOne(url).flush(null, { status: 401, statusText: 'Unauthorized' });
       expect(error).toHaveBeenCalledExactlyOnceWith(failure);
-      expect(authSessionStub.clearSession).toHaveBeenCalledTimes(1);
+      expect(authSessionStub.requiredReauthentication).toHaveBeenCalledTimes(1);
       httpTesting.expectNone(url);
     });
 
@@ -401,7 +409,7 @@ describe('authInterceptor', () => {
       httpTesting.expectOne(url).flush(null, { status: 401, statusText: 'Unauthorized' });
       expect(error).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
       expect(authSessionStub.renewAccessToken).not.toHaveBeenCalled();
-      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+      expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
     });
 
     it.each(['profile', 'token'] as const)(
@@ -423,7 +431,7 @@ describe('authInterceptor', () => {
 
         httpTesting.expectNone(url);
         expect(error).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
-        expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+        expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
       },
     );
 
@@ -439,7 +447,7 @@ describe('authInterceptor', () => {
       pending.error(failure);
 
       expect(error).toHaveBeenCalledExactlyOnceWith(failure);
-      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+      expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
       expect(authSessionStub.accessToken()).toBe('new-login-token');
       httpTesting.expectNone(url);
     });
@@ -455,7 +463,7 @@ describe('authInterceptor', () => {
       retry.flush(null, { status: 401, statusText: 'Unauthorized' });
 
       expect(error).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
-      expect(authSessionStub.clearSession).not.toHaveBeenCalled();
+      expect(authSessionStub.requiredReauthentication).not.toHaveBeenCalled();
       expect(authSessionStub.accessToken()).toBe('new-login-token');
       expect(authSessionStub.renewAccessToken).toHaveBeenCalledTimes(1);
     });
