@@ -33,9 +33,10 @@ describe('ServiceRequestRealtime', () => {
     expect(sockets).toHaveLength(0);
     expect('next' in service.conversationChanged$).toBe(false);
     expect('next' in service.connected$).toBe(false);
+    expect('next' in service.renewalRequested$).toBe(false);
   });
 
-  it('should configure the private namespace and token and install both listeners before connecting', () => {
+  it('should configure the private namespace and token and install all lifecycle listeners before connecting', () => {
     const on = vi.spyOn(Socket.prototype, 'on');
     service.connect('access-token');
     expect(sockets).toHaveLength(1);
@@ -46,6 +47,8 @@ describe('ServiceRequestRealtime', () => {
     expect(socket.auth).toEqual({ accessToken: 'access-token' });
     expect(socket.listeners('conversation.changed')).toHaveLength(1);
     expect(socket.listeners('connect')).toHaveLength(1);
+    expect(socket.listeners('disconnect')).toHaveLength(1);
+    expect(socket.listeners('connect_error')).toHaveLength(1);
     expect(on.mock.invocationCallOrder.at(-1)).toBeLessThan(
       vi.mocked(Socket.prototype.connect).mock.invocationCallOrder[0],
     );
@@ -234,6 +237,88 @@ describe('ServiceRequestRealtime', () => {
     expect(complete).not.toHaveBeenCalled();
     service.connect('new-token');
     receive(sockets[1], 'connect');
+    expect(next).toHaveBeenCalledOnce();
+    subscription.unsubscribe();
+  });
+  it('should request renewal when the server explicitly closes the socket', () => {
+    const renew = vi.fn();
+    const subscription = service.renewalRequested$.subscribe(renew);
+    service.connect('access-token');
+    receive(sockets[0], 'disconnect', 'io server disconnect');
+    expect(renew).toHaveBeenCalledOnce();
+    subscription.unsubscribe();
+  });
+
+  it.each(['io client disconnect', 'ping timeout', 'transport close', 'transport error'])(
+    'should not request authentication renewal for %s',
+    (reason) => {
+      const renew = vi.fn();
+      const subscription = service.renewalRequested$.subscribe(renew);
+      service.connect('access-token');
+      receive(sockets[0], 'disconnect', reason);
+      expect(renew).not.toHaveBeenCalled();
+      subscription.unsubscribe();
+    },
+  );
+
+  it('should request renewal for a refused Unauthorized handshake without automatic reconnection', () => {
+    const renew = vi.fn();
+    const subscription = service.renewalRequested$.subscribe(renew);
+    service.connect('access-token');
+    vi.spyOn(sockets[0], 'active', 'get').mockReturnValue(false);
+    receive(sockets[0], 'connect_error', new Error('Unauthorized'));
+    expect(renew).toHaveBeenCalledOnce();
+    subscription.unsubscribe();
+  });
+
+  it('should leave a temporary failure with an active reconnection strategy to Socket.IO', () => {
+    const renew = vi.fn();
+    const subscription = service.renewalRequested$.subscribe(renew);
+    service.connect('access-token');
+    vi.spyOn(sockets[0], 'active', 'get').mockReturnValue(true);
+    receive(sockets[0], 'connect_error', new Error('Unauthorized'));
+    expect(renew).not.toHaveBeenCalled();
+    subscription.unsubscribe();
+  });
+
+  it.each(['websocket error', 'xhr poll error', 'Server unavailable'])(
+    'should not treat an unrelated connection error as an authentication failure: %s',
+    (message) => {
+      const renew = vi.fn();
+      const subscription = service.renewalRequested$.subscribe(renew);
+      service.connect('access-token');
+      vi.spyOn(sockets[0], 'active', 'get').mockReturnValue(false);
+      receive(sockets[0], 'connect_error', new Error(message));
+      expect(renew).not.toHaveBeenCalled();
+      subscription.unsubscribe();
+    },
+  );
+
+  it('should ignore authentication events from removed old-socket listeners after token replacement', () => {
+    const renew = vi.fn();
+    const subscription = service.renewalRequested$.subscribe(renew);
+    service.connect('old-token');
+    service.connect('new-token');
+    receive(sockets[0], 'disconnect', 'io server disconnect');
+    receive(sockets[0], 'connect_error', new Error('Unauthorized'));
+    expect(renew).not.toHaveBeenCalled();
+    receive(sockets[1], 'disconnect', 'io server disconnect');
+    expect(renew).toHaveBeenCalledOnce();
+    subscription.unsubscribe();
+  });
+
+  it('should remove renewal listeners on local disconnect while retaining the stream for the next login', () => {
+    const next = vi.fn();
+    const complete = vi.fn();
+    const subscription = service.renewalRequested$.subscribe({ next, complete });
+    service.connect('old-token');
+    service.disconnect();
+    receive(sockets[0], 'disconnect', 'io server disconnect');
+    receive(sockets[0], 'connect_error', new Error('Unauthorized'));
+    expect(next).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    service.connect('new-token');
+    receive(sockets[1], 'disconnect', 'io server disconnect');
     expect(next).toHaveBeenCalledOnce();
     subscription.unsubscribe();
   });

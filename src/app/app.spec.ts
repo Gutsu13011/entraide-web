@@ -1,4 +1,4 @@
-import { of, Subject, tap, throwError } from 'rxjs';
+import { of, Subject, tap, throwError, finalize } from 'rxjs';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { App } from './app';
@@ -20,16 +20,20 @@ import {
 
 let conversationChanges = new Subject<ConversationChangedEvent>();
 let connectedEvents = new Subject<void>();
+let renewalEvents = new Subject<void>();
 const realtimeStub = {
   connect: vi.fn(),
   disconnect: vi.fn(),
   conversationChanged$: conversationChanges.asObservable(),
   connected$: connectedEvents.asObservable(),
+  renewalRequested$: renewalEvents.asObservable(),
 };
 
 beforeEach(() => {
   conversationChanges = new Subject<ConversationChangedEvent>();
   connectedEvents = new Subject<void>();
+  renewalEvents = new Subject<void>();
+  realtimeStub.renewalRequested$ = renewalEvents.asObservable();
   realtimeStub.connected$ = connectedEvents.asObservable();
   realtimeStub.conversationChanged$ = conversationChanges.asObservable();
   realtimeStub.connect.mockReset();
@@ -1479,6 +1483,8 @@ describe('App realtime session synchronization', () => {
     currentUser: signal<CurrentUserResponse | null>(null),
     reauthenticationRequired: signal(false),
     logout: vi.fn(),
+    renewAccessToken: vi.fn(),
+    requiredReauthentication: vi.fn(),
   };
   const unrelatedStatus = signal('idle');
   const unread = {
@@ -1496,6 +1502,12 @@ describe('App realtime session synchronization', () => {
     auth.logout.mockReset().mockImplementation(() => {
       auth.accessToken.set(null);
       auth.currentUser.set(null);
+    });
+    auth.renewAccessToken.mockReset().mockReturnValue(new Subject<string>());
+    auth.requiredReauthentication.mockReset().mockImplementation(() => {
+      auth.accessToken.set(null);
+      auth.currentUser.set(null);
+      auth.reauthenticationRequired.set(true);
     });
     unrelatedStatus.set('idle');
     unread.reset.mockReset();
@@ -1755,5 +1767,214 @@ describe('App realtime session synchronization', () => {
     connectedEvents.next();
     conversationChanges.next({ serviceRequestId: 42 });
     expect(unread.refresh).not.toHaveBeenCalled();
+  });
+  function pendingRenewal() {
+    const response = new Subject<string>();
+    auth.renewAccessToken.mockReturnValue(
+      response.pipe(tap((token) => auth.accessToken.set(token))),
+    );
+    return response;
+  }
+
+  it('should ignore renewal requests without an authenticated session', () => {
+    fixture.detectChanges();
+    renewalEvents.next();
+    expect(auth.renewAccessToken).not.toHaveBeenCalled();
+    expect(renewalEvents.observed).toBe(false);
+  });
+
+  it('should listen for authentication recovery before opening the socket', () => {
+    realtimeStub.connect.mockImplementation(() => renewalEvents.next());
+    signIn();
+    expect(auth.renewAccessToken).toHaveBeenCalledOnce();
+  });
+
+  it('should exhaust simultaneous renewal requests and reconnect once with the updated token', () => {
+    const response = pendingRenewal();
+    signIn();
+    renewalEvents.next();
+    renewalEvents.next();
+    renewalEvents.next();
+    expect(auth.renewAccessToken).toHaveBeenCalledOnce();
+    response.next('renewed-token');
+    response.complete();
+    fixture.detectChanges();
+    expect(realtimeStub.connect.mock.calls).toEqual([['first-token'], ['renewed-token']]);
+    expect(auth.currentUser()).toBe(user);
+    expect(auth.requiredReauthentication).not.toHaveBeenCalled();
+  });
+
+  it.each([0, 401, 500])(
+    'should request reauthentication after recovery fails with HTTP %s',
+    (status) => {
+      auth.renewAccessToken.mockReturnValue(throwError(() => new HttpErrorResponse({ status })));
+      signIn();
+      renewalEvents.next();
+      fixture.detectChanges();
+      expect(auth.requiredReauthentication).toHaveBeenCalledOnce();
+      expect(auth.currentUser()).toBeNull();
+      expect(auth.logout).not.toHaveBeenCalled();
+      expect(realtimeStub.disconnect).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['token', 'account'])(
+    'should ignore queued recovery requests after a %s change before cleanup',
+    (change) => {
+      signIn();
+      if (change === 'token') auth.accessToken.set('other-token');
+      else auth.currentUser.set({ ...user, id: 9 });
+      renewalEvents.next();
+      expect(auth.renewAccessToken).not.toHaveBeenCalled();
+      expect(auth.requiredReauthentication).not.toHaveBeenCalled();
+    },
+  );
+
+  it('should ignore repeated old-socket requests after renewal succeeds but before the effect restarts', () => {
+    const response = pendingRenewal();
+    signIn();
+    renewalEvents.next();
+    response.next('renewed-token');
+    response.complete();
+    renewalEvents.next();
+    expect(auth.renewAccessToken).toHaveBeenCalledOnce();
+    expect(auth.requiredReauthentication).not.toHaveBeenCalled();
+    fixture.detectChanges();
+  });
+
+  it('should stop a repeated authentication refusal before any successful connection instead of looping', () => {
+    const response = pendingRenewal();
+    signIn();
+    renewalEvents.next();
+    response.next('renewed-token');
+    response.complete();
+    fixture.detectChanges();
+    renewalEvents.next();
+    fixture.detectChanges();
+    expect(auth.renewAccessToken).toHaveBeenCalledOnce();
+    expect(auth.requiredReauthentication).toHaveBeenCalledOnce();
+    expect(auth.reauthenticationRequired()).toBe(true);
+  });
+
+  it('should allow a new recovery attempt after the renewed connection succeeds', () => {
+    const first = pendingRenewal();
+    signIn();
+    renewalEvents.next();
+    first.next('renewed-token');
+    first.complete();
+    fixture.detectChanges();
+    connectedEvents.next();
+    const second = pendingRenewal();
+    renewalEvents.next();
+    expect(auth.renewAccessToken).toHaveBeenCalledTimes(2);
+    second.next('next-token');
+    second.complete();
+    fixture.detectChanges();
+    expect(realtimeStub.connect).toHaveBeenLastCalledWith('next-token');
+    expect(auth.requiredReauthentication).not.toHaveBeenCalled();
+  });
+
+  it('should not reset the recovery limit from a conversation notification alone', () => {
+    const response = pendingRenewal();
+    signIn();
+    renewalEvents.next();
+    response.next('renewed-token');
+    response.complete();
+    fixture.detectChanges();
+    conversationChanges.next({ serviceRequestId: 42 });
+    renewalEvents.next();
+    expect(auth.renewAccessToken).toHaveBeenCalledOnce();
+    expect(auth.requiredReauthentication).toHaveBeenCalledOnce();
+    fixture.detectChanges();
+  });
+
+  it('should not reset the recovery limit from a queued old-token connection event', () => {
+    const response = pendingRenewal();
+    signIn();
+    renewalEvents.next();
+    response.next('renewed-token');
+    response.complete();
+    connectedEvents.next();
+    fixture.detectChanges();
+    renewalEvents.next();
+    expect(auth.renewAccessToken).toHaveBeenCalledOnce();
+    expect(auth.requiredReauthentication).toHaveBeenCalledOnce();
+    fixture.detectChanges();
+  });
+
+  it('should explicitly reconnect if renewal returns the identical token and retain the retry limit', () => {
+    const response = pendingRenewal();
+    signIn();
+    renewalEvents.next();
+    response.next('first-token');
+    response.complete();
+    fixture.detectChanges();
+    expect(realtimeStub.connect.mock.calls).toEqual([['first-token'], ['first-token']]);
+    renewalEvents.next();
+    expect(auth.renewAccessToken).toHaveBeenCalledOnce();
+    expect(auth.requiredReauthentication).toHaveBeenCalledOnce();
+    fixture.detectChanges();
+  });
+
+  it.each(['logout', 'account', 'destroy'])(
+    'should cancel pending recovery on %s and ignore its late result',
+    (change) => {
+      const response = new Subject<string>();
+      const teardown = vi.fn();
+      auth.renewAccessToken.mockReturnValue(
+        response.pipe(
+          tap((token) => auth.accessToken.set(token)),
+          finalize(teardown),
+        ),
+      );
+      signIn();
+      renewalEvents.next();
+      expect(response.observed).toBe(true);
+      if (change === 'destroy') fixture.destroy();
+      else {
+        if (change === 'logout') auth.logout();
+        else {
+          auth.currentUser.set({ ...user, id: 9 });
+          auth.accessToken.set('other-token');
+        }
+        fixture.detectChanges();
+      }
+      expect(teardown).toHaveBeenCalledOnce();
+      expect(response.observed).toBe(false);
+      response.next('late-token');
+      expect(auth.accessToken()).not.toBe('late-token');
+      expect(auth.requiredReauthentication).not.toHaveBeenCalled();
+    },
+  );
+
+  it('should ignore an old recovery error after an account change before cleanup', () => {
+    const response = new Subject<string>();
+    auth.renewAccessToken.mockReturnValue(response);
+    signIn();
+    renewalEvents.next();
+    const other = { ...user, id: 9 };
+    auth.currentUser.set(other);
+    auth.accessToken.set('other-token');
+    response.error(new Error('Old request failed'));
+    expect(auth.currentUser()).toBe(other);
+    expect(auth.accessToken()).toBe('other-token');
+    expect(auth.requiredReauthentication).not.toHaveBeenCalled();
+    fixture.detectChanges();
+  });
+
+  it('should permit recovery for a newly logged-in profile even with the same account id', () => {
+    const first = pendingRenewal();
+    signIn();
+    renewalEvents.next();
+    first.next('renewed-token');
+    first.complete();
+    fixture.detectChanges();
+    auth.currentUser.set({ ...user });
+    auth.accessToken.set('new-login-token');
+    fixture.detectChanges();
+    pendingRenewal();
+    renewalEvents.next();
+    expect(auth.renewAccessToken).toHaveBeenCalledTimes(2);
+    expect(auth.requiredReauthentication).not.toHaveBeenCalled();
   });
 });

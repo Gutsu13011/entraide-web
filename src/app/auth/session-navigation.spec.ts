@@ -17,6 +17,7 @@ describe('Application reauthentication navigation', () => {
     connect: vi.fn(),
     disconnect: vi.fn(),
     connected$: new Subject<void>().asObservable(),
+    renewalRequested$: new Subject<void>().asObservable(),
     conversationChanged$: new Subject<{ serviceRequestId: number }>().asObservable(),
   };
   const authUrl = 'http://localhost:3000/auth';
@@ -34,6 +35,7 @@ describe('Application reauthentication navigation', () => {
   let client: HttpClient;
 
   beforeEach(async () => {
+    realtime.renewalRequested$ = new Subject<void>().asObservable();
     realtime.connected$ = new Subject<void>().asObservable();
     realtime.conversationChanged$ = new Subject<{ serviceRequestId: number }>().asObservable();
     realtime.connect.mockReset();

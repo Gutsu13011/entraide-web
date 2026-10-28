@@ -12,9 +12,11 @@ export class ServiceRequestRealtime {
 
   private readonly conversationChangedSubject = new Subject<ConversationChangedEvent>();
   private readonly connectedSubject = new Subject<void>();
+  private readonly renewalRequestedSubject = new Subject<void>();
 
   readonly conversationChanged$ = this.conversationChangedSubject.asObservable();
   readonly connected$ = this.connectedSubject.asObservable();
+  readonly renewalRequested$ = this.renewalRequestedSubject.asObservable();
 
   connect(accessToken: string): void {
     this.disconnect();
@@ -30,6 +32,16 @@ export class ServiceRequestRealtime {
     });
     socket.on('connect', () => {
       this.connectedSubject.next();
+    });
+    socket.on('disconnect', (reason) => {
+      if (reason === 'io server disconnect') {
+        this.renewalRequestedSubject.next();
+      }
+    });
+    socket.on('connect_error', (error: Error) => {
+      if (!socket.active && error.message === 'Unauthorized') {
+        this.renewalRequestedSubject.next();
+      }
     });
 
     socket.connect();

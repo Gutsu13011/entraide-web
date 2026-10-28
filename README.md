@@ -498,12 +498,32 @@ update read receipts and acknowledge received messages only after rendering.
 The API suppresses read notifications when no message changed to avoid a
 reload/read feedback loop.
 
-Socket.IO handles temporary transport reconnection. Explicit handling of a
-server disconnect at token expiry or a rejected handshake is not yet wired:
-subsequent authenticated HTTP renewal changes the session token and opens a new
-socket. The service exposes `connected$` for every successful connection and
-reconnection. App merges that stream with conversation changes to refresh counts;
-open conversations also reload eligible visible histories after reconnection.
+Socket.IO handles temporary transport reconnection. The service exposes
+`renewalRequested$` when the server explicitly disconnects a socket or rejects a
+handshake with `Unauthorized` and no automatic reconnection is active. Ordinary
+transport errors and local disconnects do not request authentication recovery.
+A server-initiated disconnect requests a recovery attempt; its reason alone does
+not prove token expiration.
+
+App subscribes before opening the socket and uses `exhaustMap` to ignore repeated
+recovery requests while renewal is pending. It calls the existing
+`AuthSession.renewAccessToken()` flow, which sends the refresh cookie and shares
+one in-flight request with concurrent HTTP 401 handling. A changed access token
+restarts the session effect and replaces the socket. If the returned token is
+identical, App explicitly reconnects because no signal change would occur.
+
+One recovery attempt is allowed for the current user-profile instance until a
+successful connection resets the limit. A repeated refusal before connection,
+or a renewal error, requests reauthentication using the existing login redirect
+and return URL. Conversation notifications alone do not reset the limit. A new
+login creates a fresh profile instance and can recover again. Identity and token
+checks ignore old-session requests and failures; effect cleanup unsubscribes
+pending recovery on logout, account changes or App destruction. A renewed token
+retains the current user profile and does not require another `/auth/me` request.
+
+The service exposes `connected$` for every successful connection and reconnection.
+App merges that stream with conversation changes to refresh counts; open
+conversations also reload eligible visible histories after reconnection.
 A pending history refresh is retried after load or send finalization. A valid
 send marks itself active before cancelling a history load, so the cancelled
 load's finalizer cannot start another load ahead of the send. Failed sends retain
@@ -517,8 +537,12 @@ replacement, old-session event rejection, HTTP counter and badge refreshes,
 conversation-id filtering, history and read-receipt updates, preserved drafts and
 focus, queued trigger coalescing, send priority over cancellation, bounded retry
 after errors, busy/hidden-page guards and component cleanup.
-Socket.IO is simulated in frontend unit tests; real socket transport and private
-room isolation are covered by API integration tests.
+Service and recovery integration tests use real Socket.IO client objects with
+network opening disabled. Recovery tests combine the real App, AuthSession,
+HTTP store, interceptor and routing with controlled HTTP responses; they cover
+shared refresh requests, identical-token renewal, repeated refusal, session
+replacement and cancellation. Real socket transport and private room isolation
+are covered by API integration tests.
 
 ## Reviews from completed requests
 
@@ -614,5 +638,4 @@ creates a production build.
 ## Planned improvements
 
 - Further visual and accessibility improvements
-- Reconnection recovery and immediate socket authentication renewal
 - Production SMTP configuration (the API already supports local unread-message reminders)
