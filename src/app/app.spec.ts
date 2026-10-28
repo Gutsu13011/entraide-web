@@ -1,4 +1,4 @@
-import { of, tap, throwError } from 'rxjs';
+import { of, Subject, tap, throwError } from 'rxjs';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { App } from './app';
@@ -13,6 +13,24 @@ import { unreadMessageState } from './service-requests/services/unread-message-s
 import type { ServiceRequestUnreadMessageCounts } from './models/service-request-unread-message-counts.model';
 import { HttpErrorResponse, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { authInterceptor } from './auth/interceptors/auth-interceptor';
+import {
+  ServiceRequestRealtime,
+  type ConversationChangedEvent,
+} from './service-requests/services/service-request-realtime';
+
+let conversationChanges = new Subject<ConversationChangedEvent>();
+const realtimeStub = {
+  connect: vi.fn(),
+  disconnect: vi.fn(),
+  conversationChanged$: conversationChanges.asObservable(),
+};
+
+beforeEach(() => {
+  conversationChanges = new Subject<ConversationChangedEvent>();
+  realtimeStub.conversationChanged$ = conversationChanges.asObservable();
+  realtimeStub.connect.mockReset();
+  realtimeStub.disconnect.mockReset();
+});
 
 describe('App', () => {
   const unreadStoreStub = {
@@ -22,6 +40,7 @@ describe('App', () => {
     counts: signal<ServiceRequestUnreadMessageCounts | null>(null),
   };
   const authSessionStub = {
+    accessToken: signal<string | null>(null),
     currentUser: signal<CurrentUserResponse | null>(null),
     reauthenticationRequired: signal(false),
     logout: vi.fn(),
@@ -32,6 +51,7 @@ describe('App', () => {
     unreadStoreStub.isLoading.set(false);
     unreadStoreStub.reset.mockReset().mockImplementation(() => unreadStoreStub.counts.set(null));
     unreadStoreStub.refresh.mockReset();
+    authSessionStub.accessToken.set(null);
     authSessionStub.currentUser.set(null);
     authSessionStub.reauthenticationRequired.set(false);
     authSessionStub.logout.mockReset();
@@ -41,6 +61,7 @@ describe('App', () => {
       providers: [
         provideRouter([]),
         { provide: AuthSession, useValue: authSessionStub },
+        { provide: ServiceRequestRealtime, useValue: realtimeStub },
         { provide: unreadMessageState, useValue: unreadStoreStub },
       ],
     }).compileComponents();
@@ -358,6 +379,7 @@ describe('App request navigation', () => {
     email: 'alice@example.com',
   };
   const authSessionStub = {
+    accessToken: signal<string | null>(null),
     currentUser: signal<CurrentUserResponse | null>(null),
     reauthenticationRequired: signal(false),
     isAuthenticated: signal(false),
@@ -414,6 +436,7 @@ describe('App request navigation', () => {
     unreadStoreStub.isLoading.set(false);
     unreadStoreStub.reset.mockReset().mockImplementation(() => unreadStoreStub.counts.set(null));
     unreadStoreStub.refresh.mockReset();
+    authSessionStub.accessToken.set('navigation-token');
     authSessionStub.currentUser.set(user);
     authSessionStub.isAuthenticated.set(true);
     authSessionStub.isLoading.set(false);
@@ -430,6 +453,7 @@ describe('App request navigation', () => {
         provideRouter(routes),
         provideHttpClientTesting(),
         { provide: AuthSession, useValue: authSessionStub },
+        { provide: ServiceRequestRealtime, useValue: realtimeStub },
         { provide: unreadMessageState, useValue: unreadStoreStub },
       ],
     }).compileComponents();
@@ -634,6 +658,7 @@ describe('App unread message session synchronization', () => {
         provideHttpClient(withInterceptors([authInterceptor])),
         provideHttpClientTesting(),
         { provide: AuthSession, useValue: authSessionStub },
+        { provide: ServiceRequestRealtime, useValue: realtimeStub },
       ],
     }).compileComponents();
     vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
@@ -741,6 +766,39 @@ describe('App unread message session synchronization', () => {
     expect(countsStore.counts()).toEqual(counts);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(fixture.componentInstance.isAccountMenuOpen()).toBe(true);
+    httpTesting.expectNone(url);
+  });
+
+  it('should refresh HTTP counts and visible badges when a conversation notification arrives', () => {
+    signIn().flush({ sentRequests: 2, receivedRequests: 0, total: 2 });
+    fixture.detectChanges();
+
+    conversationChanges.next({ serviceRequestId: 42 });
+
+    const pending = httpTesting.expectOne(url);
+    expect(pending.request.headers.get('Authorization')).toBe('Bearer token-a');
+    pending.flush({ sentRequests: 0, receivedRequests: 3, total: 3 });
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('a[href="/service-requests/sent"] .unread-badge'),
+    ).toBeNull();
+    expect(
+      fixture.nativeElement
+        .querySelector('a[href="/service-requests/received"] .unread-badge')
+        ?.textContent.trim(),
+    ).toBe('3');
+  });
+
+  it('should request current counts with the new token after token replacement', () => {
+    signIn().flush({ sentRequests: 0, receivedRequests: 0, total: 0 });
+    authSessionStub.accessToken.set('renewed-token');
+    fixture.detectChanges();
+
+    conversationChanges.next({ serviceRequestId: 42 });
+
+    const pending = httpTesting.expectOne(url);
+    expect(pending.request.headers.get('Authorization')).toBe('Bearer renewed-token');
+    pending.flush({ sentRequests: 1, receivedRequests: 0, total: 1 });
     httpTesting.expectNone(url);
   });
 
@@ -1384,5 +1442,251 @@ describe('App unread message session synchronization', () => {
       );
       httpTesting.expectNone(url);
     });
+  });
+});
+
+describe('App realtime session synchronization', () => {
+  const user: CurrentUserResponse = {
+    id: 8,
+    firstName: 'Alice',
+    lastName: 'Martin',
+    email: 'alice@example.test',
+  };
+  const auth = {
+    accessToken: signal<string | null>(null),
+    currentUser: signal<CurrentUserResponse | null>(null),
+    reauthenticationRequired: signal(false),
+    logout: vi.fn(),
+  };
+  const unrelatedStatus = signal('idle');
+  const unread = {
+    reset: vi.fn(),
+    refresh: vi.fn(),
+    isLoading: signal(false),
+    counts: signal(null),
+  };
+  let fixture: ComponentFixture<App>;
+
+  beforeEach(async () => {
+    auth.accessToken.set(null);
+    auth.currentUser.set(null);
+    auth.reauthenticationRequired.set(false);
+    auth.logout.mockReset().mockImplementation(() => {
+      auth.accessToken.set(null);
+      auth.currentUser.set(null);
+    });
+    unrelatedStatus.set('idle');
+    unread.reset.mockReset();
+    unread.refresh.mockReset();
+    await TestBed.configureTestingModule({
+      imports: [App],
+      providers: [
+        provideRouter([]),
+        { provide: AuthSession, useValue: auth },
+        { provide: unreadMessageState, useValue: unread },
+        { provide: ServiceRequestRealtime, useValue: realtimeStub },
+      ],
+    }).compileComponents();
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    fixture = TestBed.createComponent(App);
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+    vi.restoreAllMocks();
+  });
+
+  function signIn(token = 'first-token') {
+    auth.accessToken.set(token);
+    auth.currentUser.set(user);
+    fixture.detectChanges();
+  }
+
+  it('should not open a connection for an anonymous session', () => {
+    fixture.detectChanges();
+    expect(realtimeStub.connect).not.toHaveBeenCalled();
+    expect(realtimeStub.disconnect).not.toHaveBeenCalled();
+  });
+
+  it.each(['token-only', 'user-only'])(
+    'should not connect with an incomplete session: %s',
+    (state) => {
+      if (state === 'token-only') auth.accessToken.set('first-token');
+      else auth.currentUser.set(user);
+      fixture.detectChanges();
+      expect(realtimeStub.connect).not.toHaveBeenCalled();
+    },
+  );
+
+  it('should open one connection for an already restored session', () => {
+    signIn();
+    expect(realtimeStub.connect).toHaveBeenCalledExactlyOnceWith('first-token');
+  });
+
+  it('should connect when an initially anonymous session signs in', () => {
+    fixture.detectChanges();
+    signIn();
+    expect(realtimeStub.connect).toHaveBeenCalledExactlyOnceWith('first-token');
+  });
+
+  it('should retain the connection across unrelated renders', () => {
+    signIn();
+    fixture.componentInstance.toggleAccountMenu();
+    fixture.detectChanges();
+    fixture.detectChanges();
+    expect(realtimeStub.connect).toHaveBeenCalledOnce();
+    expect(realtimeStub.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('should disconnect before reconnecting when only the access token changes', () => {
+    signIn();
+    auth.accessToken.set('renewed-token');
+    fixture.detectChanges();
+    expect(realtimeStub.disconnect).toHaveBeenCalledOnce();
+    expect(realtimeStub.connect.mock.calls).toEqual([['first-token'], ['renewed-token']]);
+    expect(realtimeStub.disconnect.mock.invocationCallOrder[0]).toBeLessThan(
+      realtimeStub.connect.mock.invocationCallOrder[1],
+    );
+    expect(unread.refresh).toHaveBeenCalledOnce();
+  });
+
+  it('should close the previous connection before switching accounts', () => {
+    signIn();
+    auth.currentUser.set({ ...user, id: 9, firstName: 'Bruno' });
+    auth.accessToken.set('other-account-token');
+    fixture.detectChanges();
+    expect(realtimeStub.disconnect).toHaveBeenCalledOnce();
+    expect(realtimeStub.connect.mock.calls).toEqual([['first-token'], ['other-account-token']]);
+    expect(realtimeStub.disconnect.mock.invocationCallOrder[0]).toBeLessThan(
+      realtimeStub.connect.mock.invocationCallOrder[1],
+    );
+  });
+
+  it('should disconnect after logout without reopening an anonymous connection', () => {
+    signIn();
+    fixture.componentInstance.onLogout();
+    fixture.detectChanges();
+    expect(realtimeStub.disconnect).toHaveBeenCalledOnce();
+    expect(realtimeStub.connect).toHaveBeenCalledOnce();
+  });
+
+  it('should clean up if either required session value disappears', () => {
+    signIn();
+    auth.accessToken.set(null);
+    fixture.detectChanges();
+    expect(realtimeStub.disconnect).toHaveBeenCalledOnce();
+    expect(realtimeStub.connect).toHaveBeenCalledOnce();
+    auth.accessToken.set('second-token');
+    fixture.detectChanges();
+    auth.currentUser.set(null);
+    fixture.detectChanges();
+    expect(realtimeStub.disconnect).toHaveBeenCalledTimes(2);
+    expect(realtimeStub.connect.mock.calls).toEqual([['first-token'], ['second-token']]);
+  });
+
+  it('should reconnect normally after logout followed by a new login', () => {
+    signIn();
+    auth.logout();
+    fixture.detectChanges();
+    signIn('second-token');
+    expect(realtimeStub.connect.mock.calls).toEqual([['first-token'], ['second-token']]);
+    expect(realtimeStub.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('should disconnect when App is destroyed', () => {
+    signIn();
+    fixture.destroy();
+    expect(realtimeStub.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('should not track signals read inside the realtime connect method', () => {
+    realtimeStub.connect.mockImplementation(() => {
+      unrelatedStatus();
+    });
+    signIn();
+    unrelatedStatus.set('connected');
+    fixture.detectChanges();
+    expect(realtimeStub.connect).toHaveBeenCalledOnce();
+    expect(realtimeStub.disconnect).not.toHaveBeenCalled();
+  });
+  it('should refresh shared counts once per event without duplicating subscriptions on renders', () => {
+    signIn();
+    fixture.detectChanges();
+    fixture.detectChanges();
+    unread.refresh.mockClear();
+
+    conversationChanges.next({ serviceRequestId: 42 });
+    conversationChanges.next({ serviceRequestId: 43 });
+
+    expect(unread.refresh).toHaveBeenCalledTimes(2);
+    expect(realtimeStub.connect).toHaveBeenCalledOnce();
+  });
+
+  it('should install the notification subscription before opening the socket', () => {
+    realtimeStub.connect.mockImplementation(() =>
+      conversationChanges.next({ serviceRequestId: 42 }),
+    );
+    signIn();
+    expect(unread.refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('should ignore queued events immediately after logout and unsubscribe during cleanup', () => {
+    signIn();
+    unread.refresh.mockClear();
+    auth.logout();
+
+    conversationChanges.next({ serviceRequestId: 42 });
+    expect(unread.refresh).not.toHaveBeenCalled();
+    fixture.detectChanges();
+    expect(conversationChanges.observed).toBe(false);
+    conversationChanges.next({ serviceRequestId: 42 });
+    expect(unread.refresh).not.toHaveBeenCalled();
+  });
+
+  it('should ignore old-session events while account switching is awaiting effect cleanup', () => {
+    signIn();
+    unread.refresh.mockClear();
+    auth.currentUser.set({ ...user, id: 9, firstName: 'Bruno' });
+    auth.accessToken.set('other-token');
+
+    conversationChanges.next({ serviceRequestId: 42 });
+    expect(unread.refresh).not.toHaveBeenCalled();
+    fixture.detectChanges();
+    unread.refresh.mockClear();
+    conversationChanges.next({ serviceRequestId: 43 });
+    expect(unread.refresh).toHaveBeenCalledOnce();
+  });
+
+  it('should ignore queued old-token events and retain only one subscription after renewal', () => {
+    signIn();
+    unread.refresh.mockClear();
+    auth.accessToken.set('renewed-token');
+
+    conversationChanges.next({ serviceRequestId: 42 });
+    expect(unread.refresh).not.toHaveBeenCalled();
+    fixture.detectChanges();
+    conversationChanges.next({ serviceRequestId: 43 });
+    expect(unread.refresh).toHaveBeenCalledOnce();
+  });
+
+  it('should unsubscribe from conversation events when App is destroyed', () => {
+    signIn();
+    unread.refresh.mockClear();
+
+    fixture.destroy();
+    conversationChanges.next({ serviceRequestId: 42 });
+
+    expect(conversationChanges.observed).toBe(false);
+    expect(unread.refresh).not.toHaveBeenCalled();
+    expect(realtimeStub.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('should leave no anonymous subscription and create one when the user signs in', () => {
+    fixture.detectChanges();
+    expect(conversationChanges.observed).toBe(false);
+    conversationChanges.next({ serviceRequestId: 42 });
+    expect(unread.refresh).not.toHaveBeenCalled();
+    signIn();
+    expect(conversationChanges.observed).toBe(true);
   });
 });

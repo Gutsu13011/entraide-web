@@ -8,9 +8,16 @@ import { routes } from '../app.routes';
 import { AuthSession } from './services/auth-session';
 import { authInterceptor } from './interceptors/auth-interceptor';
 import { LoginForm } from './components/login-form/login-form';
+import { Subject } from 'rxjs';
+import { ServiceRequestRealtime } from '../service-requests/services/service-request-realtime';
 
 // Use the real root component, auth store, interceptor, guard and login form.
 describe('Application reauthentication navigation', () => {
+  const realtime = {
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    conversationChanged$: new Subject<{ serviceRequestId: number }>().asObservable(),
+  };
   const authUrl = 'http://localhost:3000/auth';
   const requestsUrl = 'http://localhost:3000/service-requests/sent';
   const countsUrl = 'http://localhost:3000/service-requests/messages/unread-counts';
@@ -26,10 +33,14 @@ describe('Application reauthentication navigation', () => {
   let client: HttpClient;
 
   beforeEach(async () => {
+    realtime.conversationChanged$ = new Subject<{ serviceRequestId: number }>().asObservable();
+    realtime.connect.mockReset();
+    realtime.disconnect.mockReset();
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [
         provideRouter(routes),
+        { provide: ServiceRequestRealtime, useValue: realtime },
         provideHttpClient(withInterceptors([authInterceptor])),
         provideHttpClientTesting(),
       ],
@@ -44,6 +55,7 @@ describe('Application reauthentication navigation', () => {
     fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     http.expectOne(countsUrl).flush(emptyCounts);
+    expect(realtime.connect).toHaveBeenCalledExactlyOnceWith('original-token');
   });
 
   afterEach(() => {
@@ -82,6 +94,7 @@ describe('Application reauthentication navigation', () => {
     expect(session.reauthenticationRequired()).toBe(true);
     expect(session.isAuthenticated()).toBe(false);
     http.expectNone(`${authUrl}/logout`);
+    expect(realtime.disconnect).toHaveBeenCalledOnce();
   }
 
   it('should redirect after renewal failure, keep the destination after failed login and return there after retry', async () => {
@@ -181,6 +194,8 @@ describe('Application reauthentication navigation', () => {
     expect(session.reauthenticationRequired()).toBe(false);
     expect(session.isAuthenticated()).toBe(true);
     expect(navigate).not.toHaveBeenCalled();
+    expect(realtime.disconnect).toHaveBeenCalledOnce();
+    expect(realtime.connect.mock.calls).toEqual([['original-token'], ['renewed-token']]);
     http.expectNone(countsUrl);
   });
 
@@ -193,6 +208,8 @@ describe('Application reauthentication navigation', () => {
     await settleNavigation();
 
     expect(router.url).toBe('/login');
+    expect(realtime.disconnect).toHaveBeenCalledOnce();
+    expect(realtime.connect).toHaveBeenCalledOnce();
     expect(session.reauthenticationRequired()).toBe(false);
     expect(session.errorMessage()).toBeNull();
     expect(navigate).toHaveBeenCalledExactlyOnceWith(['/login']);

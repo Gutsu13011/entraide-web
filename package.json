@@ -19,6 +19,7 @@
     "@angular/router": "^22.1.0",
     "@ngrx/signals": "^22.0.1",
     "rxjs": "~7.8.0",
+    "socket.io-client": "^4.8.4",
     "tslib": "^2.3.0"
   },
   "devDependencies": {

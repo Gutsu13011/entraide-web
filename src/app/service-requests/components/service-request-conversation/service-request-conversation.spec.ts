@@ -9,11 +9,16 @@ import { ServiceRequestStore } from '../../services/service-request-store';
 import { ServiceRequestConversation } from './service-request-conversation';
 import { AuthSession } from '../../../auth/services/auth-session';
 import { unreadMessageState } from '../../services/unread-message-store';
+import {
+  ServiceRequestRealtime,
+  type ConversationChangedEvent,
+} from '../../services/service-request-realtime';
 
 describe('ServiceRequestConversation', () => {
   let fixture: ComponentFixture<ServiceRequestConversation>;
   let component: ServiceRequestConversation;
   let response$: Subject<ServiceRequestMessage[]>;
+  let conversationChanges: Subject<ConversationChangedEvent>;
   const storeStub = { getMessages: vi.fn(), sendMessage: vi.fn(), markMessagesAsRead: vi.fn() };
   const authSessionStub = { currentUser: vi.fn() };
   const unreadStoreStub = { refresh: vi.fn() };
@@ -34,6 +39,7 @@ describe('ServiceRequestConversation', () => {
   beforeEach(async () => {
     unreadStoreStub.refresh.mockReset();
     response$ = new Subject<ServiceRequestMessage[]>();
+    conversationChanges = new Subject<ConversationChangedEvent>();
     storeStub.getMessages.mockReset().mockReturnValue(response$);
     storeStub.sendMessage.mockReset();
     storeStub.markMessagesAsRead.mockReset().mockReturnValue(of(undefined));
@@ -42,6 +48,10 @@ describe('ServiceRequestConversation', () => {
       imports: [ServiceRequestConversation],
       providers: [
         { provide: ServiceRequestStore, useValue: storeStub },
+        {
+          provide: ServiceRequestRealtime,
+          useValue: { conversationChanged$: conversationChanges.asObservable() },
+        },
         { provide: AuthSession, useValue: authSessionStub },
         { provide: unreadMessageState, useValue: unreadStoreStub },
         { provide: DATE_PIPE_DEFAULT_OPTIONS, useValue: { timezone: 'UTC' } },
@@ -692,6 +702,143 @@ describe('ServiceRequestConversation', () => {
       vi.advanceTimersByTime(10_000);
       return response;
     }
+
+    it('should refresh the matching conversation immediately and preserve the focused draft while updating read receipts', () => {
+      loadInitial();
+      const textarea = element().querySelector<HTMLTextAreaElement>('textarea')!;
+      component.messageForm.controls.content.setValue('Brouillon conservé');
+      textarea.focus();
+      const refresh = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValue(refresh);
+
+      conversationChanges.next({ serviceRequestId: 42 });
+
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(storeStub.getMessages).toHaveBeenLastCalledWith(42);
+      expect(component.isRefreshing()).toBe(true);
+      const readAt = '2026-10-24T09:35:00.000Z';
+      refresh.next([
+        { ...firstMessage, readAt },
+        { ...otherMessage, readAt },
+      ]);
+      refresh.complete();
+      fixture.detectChanges();
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(2);
+      expect(element().querySelectorAll('.message-read-check')).toHaveLength(2);
+      expect(element().querySelector('textarea')).toBe(textarea);
+      expect(TestBed.inject(DOCUMENT).activeElement).toBe(textarea);
+      expect(component.messageForm.controls.content.value).toBe('Brouillon conservé');
+    });
+
+    it('should ignore notifications for other conversations', () => {
+      loadInitial();
+      conversationChanges.next({ serviceRequestId: 73 });
+      expect(storeStub.getMessages).toHaveBeenCalledOnce();
+      expect(component.isRefreshing()).toBe(false);
+    });
+
+    it('should skip hidden notifications and catch up when the page becomes visible', () => {
+      loadInitial();
+      visibility = 'hidden';
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledOnce();
+      storeStub.getMessages.mockReturnValue(of([firstMessage]));
+      visibility = 'visible';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+    });
+
+    it('should ignore conversation notifications while signed out', () => {
+      loadInitial();
+      authSessionStub.currentUser.mockReturnValue(null);
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledOnce();
+    });
+
+    it('should not repeat a failed initial load in response to notifications', () => {
+      fixture.detectChanges();
+      response$.error(new HttpErrorResponse({ status: 403 }));
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledOnce();
+      expect(component.loadError()).not.toBeNull();
+    });
+
+    it('should not overlap an initial history load with an event-triggered request', () => {
+      fixture.detectChanges();
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledOnce();
+      expect(component.isLoading()).toBe(true);
+    });
+
+    it('should avoid parallel loads during a burst and accept notifications after the refresh completes', () => {
+      loadInitial();
+      const refresh = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValue(refresh);
+      conversationChanges.next({ serviceRequestId: 42 });
+      conversationChanges.next({ serviceRequestId: 42 });
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      refresh.next([firstMessage]);
+      refresh.complete();
+      storeStub.getMessages.mockReturnValue(of([firstMessage]));
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+    });
+
+    it('should preserve the history and draft after a failed event refresh and retry on a later event', () => {
+      loadInitial();
+      component.messageForm.controls.content.setValue('Brouillon conservé');
+      const refresh = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValue(refresh);
+      conversationChanges.next({ serviceRequestId: 42 });
+      refresh.error(new HttpErrorResponse({ status: 500 }));
+      expect(component.messages()).toEqual([firstMessage]);
+      expect(component.refreshError()).not.toBeNull();
+      storeStub.getMessages.mockReturnValue(of([firstMessage]));
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      expect(component.refreshError()).toBeNull();
+      expect(component.messageForm.controls.content.value).toBe('Brouillon conservé');
+    });
+
+    it('should wait for an active reply send before accepting another notification-triggered load', () => {
+      loadInitial();
+      const send = new Subject<ServiceRequestMessage>();
+      storeStub.sendMessage.mockReturnValue(send);
+      component.messageForm.controls.content.setValue('Ma réponse');
+      component.onSendMessage();
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledOnce();
+      send.next({ ...firstMessage, id: 103, content: 'Ma réponse' });
+      send.complete();
+      storeStub.getMessages.mockReturnValue(of(component.messages()));
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+    });
+
+    it('should acknowledge event-loaded received messages only after rendering and refresh shared counts', () => {
+      loadInitial();
+      const refresh = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValue(refresh);
+      conversationChanges.next({ serviceRequestId: 42 });
+      refresh.next([firstMessage, otherMessage]);
+      refresh.complete();
+      expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
+      fixture.detectChanges();
+      expect(storeStub.markMessagesAsRead).toHaveBeenCalledExactlyOnceWith(42, {
+        upToMessageId: 102,
+      });
+      expect(unreadStoreStub.refresh).toHaveBeenCalledOnce();
+    });
+
+    it('should remove the realtime subscription on closure and ignore later notifications', () => {
+      loadInitial();
+      expect(conversationChanges.observed).toBe(true);
+      fixture.destroy();
+      expect(conversationChanges.observed).toBe(false);
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledOnce();
+    });
 
     it('should refresh after 10 seconds while keeping the same focused reply field and draft', () => {
       loadInitial();

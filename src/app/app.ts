@@ -9,6 +9,7 @@ import {
 import { AuthSession } from './auth/services/auth-session';
 import { unreadMessageState } from './service-requests/services/unread-message-store';
 import { fromEvent, interval } from 'rxjs';
+import { ServiceRequestRealtime } from './service-requests/services/service-request-realtime';
 
 @Component({
   selector: 'app-root',
@@ -65,10 +66,41 @@ export class App {
         });
       });
     });
+
+    effect((onCleanup) => {
+      const accessToken = this.authSession.accessToken();
+      const currentUser = this.authSession.currentUser();
+
+      if (accessToken === null || currentUser === null) {
+        return;
+      }
+
+      untracked(() => {
+        const changesSubscription = this.serviceRequestRealtime.conversationChanged$.subscribe(
+          () => {
+            if (
+              this.authSession.currentUser() !== currentUser ||
+              this.authSession.accessToken() !== accessToken
+            ) {
+              return;
+            }
+
+            this.unreadMessageState.refresh();
+          },
+        );
+        this.serviceRequestRealtime.connect(accessToken);
+
+        onCleanup(() => {
+          changesSubscription.unsubscribe();
+          this.serviceRequestRealtime.disconnect();
+        });
+      });
+    });
   }
 
   private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
+  private readonly serviceRequestRealtime = inject(ServiceRequestRealtime);
 
   readonly authSession = inject(AuthSession);
   readonly unreadMessageState = inject(unreadMessageState);

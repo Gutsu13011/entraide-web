@@ -11,12 +11,13 @@ import {
 } from '@angular/core';
 import { ServiceRequestMessage } from '../../../models/service-request-message.model';
 import { ServiceRequestStore } from '../../services/service-request-store';
-import { finalize, fromEvent, interval, merge, Subject, takeUntil } from 'rxjs';
+import { filter, finalize, fromEvent, interval, merge, Subject, takeUntil } from 'rxjs';
 import { DatePipe } from '@angular/common';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AuthSession } from '../../../auth/services/auth-session';
 import { unreadMessageState } from '../../services/unread-message-store';
+import { ServiceRequestRealtime } from '../../services/service-request-realtime';
 
 @Component({
   imports: [DatePipe, ReactiveFormsModule],
@@ -32,6 +33,7 @@ export class ServiceRequestConversation implements OnInit {
   private readonly unreadMessageState = inject(unreadMessageState);
   private readonly document = inject(DOCUMENT);
   private readonly messageLoadCancelled = new Subject<void>();
+  private readonly serviceRequestRealtime = inject(ServiceRequestRealtime);
 
   readonly serviceRequestId = input.required<number>();
   readonly messages = signal<ServiceRequestMessage[]>([]);
@@ -52,7 +54,11 @@ export class ServiceRequestConversation implements OnInit {
   ngOnInit(): void {
     this.loadMessages(true);
 
-    merge(interval(10_000), fromEvent(this.document, 'visibilitychange'))
+    const conversationChanges = this.serviceRequestRealtime.conversationChanged$.pipe(
+      filter((event) => event.serviceRequestId === this.serviceRequestId()),
+    );
+
+    merge(interval(10_000), fromEvent(this.document, 'visibilitychange'), conversationChanges)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
         if (

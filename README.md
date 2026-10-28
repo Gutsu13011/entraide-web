@@ -416,15 +416,17 @@ while an in-flight history load can still finish.
 Returning to the page triggers an immediate history refresh through
 `visibilitychange`, provided the account is signed in, the initial load
 succeeded and no history load or reply submission is pending. The existing
-10-second timer keeps its schedule. Both trigger sources share the same
-subscription, which is cleaned up when the discussion closes. A background
-loading error allows retrying on a later return as well as on a polling tick.
+10-second timer keeps its schedule. Matching `conversation.changed` Socket.IO
+events also trigger history refreshes through the same subscription and guards.
+Events for other request ids are ignored. All three trigger sources are cleaned
+up when the discussion closes. A background loading error allows retrying on a
+later return, polling tick or matching notification.
 
 The read PATCH returns no content and does not replace locally loaded read
 dates; the next history refresh or reopening fetches the latest server values.
 Conversation history and header counters use separate polling intervals.
-There is no real-time push. Real-time notifications and delayed email reminders
-are planned.
+Socket.IO notifications now trigger matching history refreshes and header-count
+refreshes. Polling remains a fallback for missed notifications.
 
 ### Unread-message counters
 
@@ -463,7 +465,47 @@ schedule; its ticks skip a pending return-triggered request. A count loading
 failure leaves the listener active for a later retry, while logout removes it.
 
 Polling updates only header counts; it does not reload conversation history
-or read dates. There is no real-time push, and browser scheduling can delay ticks.
+or read dates. Socket.IO events separately refresh header counts and eligible
+open conversations. Browser scheduling can delay polling ticks.
+
+## Real-time conversation notifications
+
+`ServiceRequestRealtime` owns one shared Socket.IO client for the API namespace
+`http://localhost:3000/service-request-messages`. `App` opens it only when both
+the current profile and access token are present, subscribes to notifications
+before connecting, and cleans up the subscription and socket when that session
+changes or App is destroyed. A new token replaces the previous connection.
+Logout closes the connection. Socket listeners are removed before disconnection;
+subscribers to the service's public Observable survive connection replacement.
+
+The access token is sent through Socket.IO's `auth.accessToken`, independently of
+the HTTP interceptor. The API verifies it and derives private user-room
+membership from the JWT. The server emits `conversation.changed` after a reply
+or an effective read update commits, with only `{ serviceRequestId: number }`.
+HTTP endpoints remain responsible for loading and changing messages.
+
+Each notification refreshes the shared unread counts. A session-identity and
+token check ignores queued old-session events before effect cleanup. Each open
+conversation filters notifications by its own request id and reuses its history
+loader when visible, signed in and initially loaded successfully. History loads
+skip events while loading, refreshing or sending; the ten-second polling and
+visibility refresh remain fallbacks. Refreshes preserve the draft and focus,
+update read receipts and acknowledge received messages only after rendering.
+The API suppresses read notifications when no message changed to avoid a
+reload/read feedback loop.
+
+Socket.IO handles temporary transport reconnection. Explicit handling of a
+server disconnect at token expiry or a rejected handshake is not yet wired:
+subsequent authenticated HTTP renewal changes the session token and opens a new
+socket. Immediate data resynchronization on socket reconnection is also pending;
+polling and visibility refresh currently provide recovery for missed events.
+
+Tests cover shared notification delivery, listener cleanup, session/token
+replacement, old-session event rejection, HTTP counter and badge refreshes,
+conversation-id filtering, history and read-receipt updates, preserved drafts and
+focus, busy/hidden-page guards, retry after a refresh error and component cleanup.
+Socket.IO is simulated in frontend unit tests; real socket transport and private
+room isolation are covered by API integration tests.
 
 ## Reviews from completed requests
 
@@ -559,5 +601,5 @@ creates a production build.
 ## Planned improvements
 
 - Further visual and accessibility improvements
-- Real-time message notifications
-- Delayed email reminders for unread messages
+- Reconnection recovery and immediate socket authentication renewal
+- Production SMTP configuration (the API already supports local unread-message reminders)
