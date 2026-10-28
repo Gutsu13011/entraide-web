@@ -399,8 +399,9 @@ draft.
 
 History loads immediately on opening. While the discussion remains open,
 it refreshes every 10 seconds if the document is visible, the account is signed
-in and the initial load succeeded. Ticks skip an existing history load or reply
-submission. Background refreshes preserve the reply field, focus and draft;
+in and the initial load succeeded. Triggers arriving during an existing history
+load or reply submission are coalesced into one pending refresh. Background
+refreshes preserve the reply field, focus and draft;
 a failed refresh shows a separate alert without hiding loaded messages or the
 form, and the next eligible tick retries. An initial load failure still requires
 closing and reopening the discussion to retry.
@@ -415,8 +416,8 @@ while an in-flight history load can still finish.
 
 Returning to the page triggers an immediate history refresh through
 `visibilitychange`, provided the account is signed in, the initial load
-succeeded and no history load or reply submission is pending. The existing
-10-second timer keeps its schedule. Matching `conversation.changed` Socket.IO
+succeeded. If a history load or reply submission is pending, the refresh waits
+for that operation to finish. The existing 10-second timer keeps its schedule. Matching `conversation.changed` Socket.IO
 events also trigger history refreshes through the same subscription and guards.
 Events for other request ids are ignored. All three trigger sources are cleaned
 up when the discussion closes. A background loading error allows retrying on a
@@ -487,9 +488,12 @@ HTTP endpoints remain responsible for loading and changing messages.
 Each notification refreshes the shared unread counts. A session-identity and
 token check ignores queued old-session events before effect cleanup. Each open
 conversation filters notifications by its own request id and reuses its history
-loader when visible, signed in and initially loaded successfully. History loads
-skip events while loading, refreshing or sending; the ten-second polling and
-visibility refresh remain fallbacks. Refreshes preserve the draft and focus,
+loader when visible, signed in and initially loaded successfully. Notifications,
+reconnections, polling ticks and visibility events share a pending-refresh flag.
+While loading, refreshing or sending, any number of triggers requests one
+follow-up load. A trigger arriving during that follow-up may request one more.
+The flag is cleared before starting each load; errors alone do not create retry
+loops. Refreshes preserve the draft and focus,
 update read receipts and acknowledge received messages only after rendering.
 The API suppresses read notifications when no message changed to avoid a
 reload/read feedback loop.
@@ -497,13 +501,22 @@ reload/read feedback loop.
 Socket.IO handles temporary transport reconnection. Explicit handling of a
 server disconnect at token expiry or a rejected handshake is not yet wired:
 subsequent authenticated HTTP renewal changes the session token and opens a new
-socket. Immediate data resynchronization on socket reconnection is also pending;
-polling and visibility refresh currently provide recovery for missed events.
+socket. The service exposes `connected$` for every successful connection and
+reconnection. App merges that stream with conversation changes to refresh counts;
+open conversations also reload eligible visible histories after reconnection.
+A pending history refresh is retried after load or send finalization. A valid
+send marks itself active before cancelling a history load, so the cancelled
+load's finalizer cannot start another load ahead of the send. Failed sends retain
+their draft and error while eligible queued work is processed. Invalid submissions
+leave both the active load and pending flag intact. Flushes are blocked while
+hidden, signed out, initially failed or destroyed; returning to visibility can
+resume pending work. Component destruction cannot start a replacement request.
 
 Tests cover shared notification delivery, listener cleanup, session/token
 replacement, old-session event rejection, HTTP counter and badge refreshes,
 conversation-id filtering, history and read-receipt updates, preserved drafts and
-focus, busy/hidden-page guards, retry after a refresh error and component cleanup.
+focus, queued trigger coalescing, send priority over cancellation, bounded retry
+after errors, busy/hidden-page guards and component cleanup.
 Socket.IO is simulated in frontend unit tests; real socket transport and private
 room isolation are covered by API integration tests.
 

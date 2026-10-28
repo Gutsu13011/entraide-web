@@ -19,6 +19,7 @@ describe('ServiceRequestConversation', () => {
   let component: ServiceRequestConversation;
   let response$: Subject<ServiceRequestMessage[]>;
   let conversationChanges: Subject<ConversationChangedEvent>;
+  let connectedEvents: Subject<void>;
   const storeStub = { getMessages: vi.fn(), sendMessage: vi.fn(), markMessagesAsRead: vi.fn() };
   const authSessionStub = { currentUser: vi.fn() };
   const unreadStoreStub = { refresh: vi.fn() };
@@ -40,6 +41,7 @@ describe('ServiceRequestConversation', () => {
     unreadStoreStub.refresh.mockReset();
     response$ = new Subject<ServiceRequestMessage[]>();
     conversationChanges = new Subject<ConversationChangedEvent>();
+    connectedEvents = new Subject<void>();
     storeStub.getMessages.mockReset().mockReturnValue(response$);
     storeStub.sendMessage.mockReset();
     storeStub.markMessagesAsRead.mockReset().mockReturnValue(of(undefined));
@@ -50,7 +52,10 @@ describe('ServiceRequestConversation', () => {
         { provide: ServiceRequestStore, useValue: storeStub },
         {
           provide: ServiceRequestRealtime,
-          useValue: { conversationChanged$: conversationChanges.asObservable() },
+          useValue: {
+            conversationChanged$: conversationChanges.asObservable(),
+            connected$: connectedEvents.asObservable(),
+          },
         },
         { provide: AuthSession, useValue: authSessionStub },
         { provide: unreadMessageState, useValue: unreadStoreStub },
@@ -703,6 +708,195 @@ describe('ServiceRequestConversation', () => {
       return response;
     }
 
+    it('should coalesce notifications during the initial load into one follow-up without waiting for the timer', () => {
+      fixture.detectChanges();
+      const followUp = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValue(followUp);
+      conversationChanges.next({ serviceRequestId: 42 });
+      connectedEvents.next();
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledOnce();
+      response$.next([firstMessage]);
+      response$.complete();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(component.isRefreshing()).toBe(true);
+      followUp.next([firstMessage]);
+      followUp.complete();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(component.isRefreshing()).toBe(false);
+    });
+
+    it('should allow a new burst during the follow-up to schedule exactly one more refresh', () => {
+      loadInitial();
+      const first = new Subject<ServiceRequestMessage[]>();
+      const second = new Subject<ServiceRequestMessage[]>();
+      const third = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages
+        .mockReturnValueOnce(first)
+        .mockReturnValueOnce(second)
+        .mockReturnValueOnce(third);
+      conversationChanges.next({ serviceRequestId: 42 });
+      connectedEvents.next();
+      first.next([firstMessage]);
+      first.complete();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      conversationChanges.next({ serviceRequestId: 42 });
+      connectedEvents.next();
+      second.next([firstMessage]);
+      second.complete();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(4);
+      third.next([firstMessage]);
+      third.complete();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(4);
+    });
+
+    it('should consume a queued refresh after failure without retrying forever when no new trigger arrives', () => {
+      loadInitial();
+      const failed = new Subject<ServiceRequestMessage[]>();
+      const retry = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValueOnce(failed).mockReturnValueOnce(retry);
+      conversationChanges.next({ serviceRequestId: 42 });
+      connectedEvents.next();
+      failed.error(new HttpErrorResponse({ status: 500 }));
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      retry.error(new HttpErrorResponse({ status: 500 }));
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      expect(component.isRefreshing()).toBe(false);
+      expect(component.refreshError()).not.toBeNull();
+      expect(component.messages()).toEqual([firstMessage]);
+    });
+
+    it('should keep a queued refresh until visibility returns when the active request finishes hidden', () => {
+      loadInitial();
+      const first = new Subject<ServiceRequestMessage[]>();
+      const followUp = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValueOnce(first).mockReturnValueOnce(followUp);
+      conversationChanges.next({ serviceRequestId: 42 });
+      connectedEvents.next();
+      visibility = 'hidden';
+      first.next([firstMessage]);
+      first.complete();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      visibility = 'visible';
+      TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      followUp.next([firstMessage]);
+      followUp.complete();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+    });
+
+    it('should not flush queued work after logout while a history request is finishing', () => {
+      loadInitial();
+      const first = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValue(first);
+      conversationChanges.next({ serviceRequestId: 42 });
+      connectedEvents.next();
+      authSessionStub.currentUser.mockReturnValue(null);
+      first.next([firstMessage]);
+      first.complete();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(component.isRefreshing()).toBe(false);
+    });
+
+    it('should keep initial failure visible instead of flushing a queued notification into an automatic retry', () => {
+      fixture.detectChanges();
+      connectedEvents.next();
+      response$.error(new HttpErrorResponse({ status: 403 }));
+      expect(storeStub.getMessages).toHaveBeenCalledOnce();
+      expect(component.loadError()).not.toBeNull();
+      expect(component.isLoading()).toBe(false);
+    });
+
+    it.each(['load', 'send'] as const)(
+      'should discard queued work when closure cancels an active %s',
+      (operation) => {
+        loadInitial();
+        const load = new Subject<ServiceRequestMessage[]>();
+        const send = new Subject<ServiceRequestMessage>();
+        if (operation === 'load') {
+          storeStub.getMessages.mockReturnValue(load);
+          conversationChanges.next({ serviceRequestId: 42 });
+        } else {
+          storeStub.sendMessage.mockReturnValue(send);
+          component.messageForm.controls.content.setValue('Réponse en cours');
+          component.onSendMessage();
+        }
+        connectedEvents.next();
+        const count = storeStub.getMessages.mock.calls.length;
+        fixture.destroy();
+        expect(storeStub.getMessages).toHaveBeenCalledTimes(count);
+        expect(load.observed).toBe(false);
+        expect(send.observed).toBe(false);
+        expect(component.isRefreshing()).toBe(false);
+        expect(component.isSending()).toBe(false);
+      },
+    );
+
+    it('should prioritize sending over the finalizer of a cancelled refresh and flush once after sending', () => {
+      loadInitial();
+      const oldLoad = new Subject<ServiceRequestMessage[]>();
+      const followUp = new Subject<ServiceRequestMessage[]>();
+      const send = new Subject<ServiceRequestMessage>();
+      const saved = { ...firstMessage, id: 103, content: 'Ma réponse' };
+      storeStub.getMessages.mockReturnValueOnce(oldLoad).mockReturnValueOnce(followUp);
+      conversationChanges.next({ serviceRequestId: 42 });
+      conversationChanges.next({ serviceRequestId: 42 });
+      storeStub.sendMessage.mockImplementation(() => {
+        expect(component.isSending()).toBe(true);
+        expect(oldLoad.observed).toBe(false);
+        expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+        return send;
+      });
+      component.messageForm.controls.content.setValue(saved.content);
+      component.onSendMessage();
+      connectedEvents.next();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      send.next(saved);
+      send.complete();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      followUp.next([firstMessage, saved]);
+      followUp.complete();
+      fixture.detectChanges();
+      expect(component.messages()).toEqual([firstMessage, saved]);
+      expect(component.messageForm.controls.content.value).toBe('');
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+    });
+
+    it('should flush queued notifications after a failed send while preserving its draft and error', () => {
+      loadInitial();
+      const send = new Subject<ServiceRequestMessage>();
+      storeStub.sendMessage.mockReturnValue(send);
+      storeStub.getMessages.mockReturnValue(of([firstMessage]));
+      component.messageForm.controls.content.setValue('Brouillon à réessayer');
+      component.onSendMessage();
+      connectedEvents.next();
+      conversationChanges.next({ serviceRequestId: 42 });
+      send.error(new HttpErrorResponse({ status: 500 }));
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(component.messageForm.controls.content.value).toBe('Brouillon à réessayer');
+      expect(component.sendError()).not.toBeNull();
+      expect(component.isSending()).toBe(false);
+    });
+
+    it('should leave a pending refresh and its queued follow-up intact when an invalid send is attempted', () => {
+      loadInitial();
+      const first = new Subject<ServiceRequestMessage[]>();
+      const followUp = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValueOnce(first).mockReturnValueOnce(followUp);
+      conversationChanges.next({ serviceRequestId: 42 });
+      connectedEvents.next();
+      component.messageForm.controls.content.setValue('   ');
+      component.onSendMessage();
+      expect(first.observed).toBe(true);
+      expect(storeStub.sendMessage).not.toHaveBeenCalled();
+      first.next([firstMessage]);
+      first.complete();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      followUp.next([firstMessage]);
+      followUp.complete();
+      expect(component.messageForm.controls.content.value).toBe('   ');
+    });
+
     it('should refresh the matching conversation immediately and preserve the focused draft while updating read receipts', () => {
       loadInitial();
       const textarea = element().querySelector<HTMLTextAreaElement>('textarea')!;
@@ -770,19 +964,28 @@ describe('ServiceRequestConversation', () => {
       expect(component.isLoading()).toBe(true);
     });
 
-    it('should avoid parallel loads during a burst and accept notifications after the refresh completes', () => {
+    it('should coalesce a burst into one follow-up refresh and accept later notifications', () => {
       loadInitial();
-      const refresh = new Subject<ServiceRequestMessage[]>();
-      storeStub.getMessages.mockReturnValue(refresh);
+      const first = new Subject<ServiceRequestMessage[]>();
+      const followUp = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages
+        .mockReturnValueOnce(first)
+        .mockReturnValueOnce(followUp)
+        .mockReturnValue(of([firstMessage]));
       conversationChanges.next({ serviceRequestId: 42 });
       conversationChanges.next({ serviceRequestId: 42 });
-      conversationChanges.next({ serviceRequestId: 42 });
+      connectedEvents.next();
       expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
-      refresh.next([firstMessage]);
-      refresh.complete();
-      storeStub.getMessages.mockReturnValue(of([firstMessage]));
-      conversationChanges.next({ serviceRequestId: 42 });
+      first.next([firstMessage]);
+      first.complete();
       expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      expect(component.isRefreshing()).toBe(true);
+      followUp.next([firstMessage, { ...otherMessage, readAt: '2026-10-24T10:00:00Z' }]);
+      followUp.complete();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      expect(component.isRefreshing()).toBe(false);
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(4);
     });
 
     it('should preserve the history and draft after a failed event refresh and retry on a later event', () => {
@@ -801,19 +1004,22 @@ describe('ServiceRequestConversation', () => {
       expect(component.messageForm.controls.content.value).toBe('Brouillon conservé');
     });
 
-    it('should wait for an active reply send before accepting another notification-triggered load', () => {
+    it('should automatically catch up after an active send when a notification was queued', () => {
       loadInitial();
       const send = new Subject<ServiceRequestMessage>();
       storeStub.sendMessage.mockReturnValue(send);
-      component.messageForm.controls.content.setValue('Ma réponse');
+      const saved = { ...firstMessage, id: 103, content: 'Ma réponse' };
+      component.messageForm.controls.content.setValue(saved.content);
       component.onSendMessage();
       conversationChanges.next({ serviceRequestId: 42 });
       expect(storeStub.getMessages).toHaveBeenCalledOnce();
-      send.next({ ...firstMessage, id: 103, content: 'Ma réponse' });
+      storeStub.getMessages.mockReturnValue(of([firstMessage, saved]));
+      send.next(saved);
       send.complete();
-      storeStub.getMessages.mockReturnValue(of(component.messages()));
-      conversationChanges.next({ serviceRequestId: 42 });
       expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(component.messages()).toEqual([firstMessage, saved]);
+      conversationChanges.next({ serviceRequestId: 42 });
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
     });
 
     it('should acknowledge event-loaded received messages only after rendering and refresh shared counts', () => {
@@ -838,6 +1044,66 @@ describe('ServiceRequestConversation', () => {
       expect(conversationChanges.observed).toBe(false);
       conversationChanges.next({ serviceRequestId: 42 });
       expect(storeStub.getMessages).toHaveBeenCalledOnce();
+    });
+
+    it('should recover missed history and read receipts immediately on reconnection while preserving the draft', () => {
+      loadInitial();
+      component.messageForm.controls.content.setValue('Brouillon conservé');
+      const refresh = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValue(refresh);
+
+      connectedEvents.next();
+
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      const readAt = '2026-10-24T09:35:00.000Z';
+      refresh.next([
+        { ...firstMessage, readAt },
+        { ...otherMessage, readAt },
+      ]);
+      refresh.complete();
+      fixture.detectChanges();
+      expect(element().querySelectorAll('.conversation-message')).toHaveLength(2);
+      expect(element().querySelectorAll('.message-read-check')).toHaveLength(2);
+      expect(component.messageForm.controls.content.value).toBe('Brouillon conservé');
+    });
+
+    it.each(['hidden', 'anonymous', 'initial-error'])(
+      'should preserve the existing refresh guards on reconnection: %s',
+      (state) => {
+        if (state === 'initial-error') {
+          fixture.detectChanges();
+          response$.error(new HttpErrorResponse({ status: 500 }));
+        } else loadInitial();
+        if (state === 'hidden') visibility = 'hidden';
+        if (state === 'anonymous') authSessionStub.currentUser.mockReturnValue(null);
+
+        connectedEvents.next();
+
+        expect(storeStub.getMessages).toHaveBeenCalledOnce();
+      },
+    );
+
+    it('should retain one subscription across reconnections and remove it when the conversation closes', () => {
+      loadInitial();
+      storeStub.getMessages.mockReturnValue(of([firstMessage]));
+      connectedEvents.next();
+      connectedEvents.next();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      fixture.destroy();
+      expect(connectedEvents.observed).toBe(false);
+      connectedEvents.next();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+    });
+
+    it('should avoid overlapping history requests when reconnection happens during a refresh', () => {
+      loadInitial();
+      const refresh = new Subject<ServiceRequestMessage[]>();
+      storeStub.getMessages.mockReturnValue(refresh);
+      conversationChanges.next({ serviceRequestId: 42 });
+      connectedEvents.next();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      refresh.next([firstMessage]);
+      refresh.complete();
     });
 
     it('should refresh after 10 seconds while keeping the same focused reply field and draft', () => {
@@ -886,42 +1152,40 @@ describe('ServiceRequestConversation', () => {
       expect(storeStub.markMessagesAsRead).not.toHaveBeenCalled();
     });
 
-    it('should wait for a slow initial load instead of starting background loads', () => {
+    it('should wait for a slow initial load and process one queued polling refresh immediately afterwards', () => {
       fixture.detectChanges();
-
       vi.advanceTimersByTime(30_000);
-
-      expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
+      expect(storeStub.getMessages).toHaveBeenCalledOnce();
       expect(component.isLoading()).toBe(true);
-      expect(component.isRefreshing()).toBe(false);
+      storeStub.getMessages.mockReturnValue(of([firstMessage]));
       response$.next([firstMessage]);
       response$.complete();
       fixture.detectChanges();
-      storeStub.getMessages.mockReturnValue(of([firstMessage]));
-      vi.advanceTimersByTime(10_000);
-      fixture.detectChanges();
       expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
-    });
-
-    it('should skip ticks while a background load is pending and accept the following tick after completion', () => {
-      loadInitial();
-      const refresh$ = new Subject<ServiceRequestMessage[]>();
-      const teardown = vi.fn();
-      storeStub.getMessages.mockReturnValue(refresh$.pipe(finalize(teardown)));
-      vi.advanceTimersByTime(10_000);
-
-      vi.advanceTimersByTime(30_000);
-
-      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
-      expect(teardown).not.toHaveBeenCalled();
-      expect(component.isRefreshing()).toBe(true);
-      refresh$.next([firstMessage]);
-      refresh$.complete();
-      expect(teardown).toHaveBeenCalledTimes(1);
-      storeStub.getMessages.mockReturnValue(of([firstMessage]));
+      expect(component.isLoading()).toBe(false);
       vi.advanceTimersByTime(10_000);
       fixture.detectChanges();
       expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+    });
+
+    it('should coalesce ticks during a slow refresh into one immediate follow-up and retain the timer schedule', () => {
+      loadInitial();
+      const refresh = new Subject<ServiceRequestMessage[]>();
+      const teardown = vi.fn();
+      storeStub.getMessages
+        .mockReturnValueOnce(refresh.pipe(finalize(teardown)))
+        .mockReturnValue(of([firstMessage]));
+      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(30_000);
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(teardown).not.toHaveBeenCalled();
+      refresh.next([firstMessage]);
+      refresh.complete();
+      expect(teardown).toHaveBeenCalledOnce();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+      vi.advanceTimersByTime(10_000);
+      fixture.detectChanges();
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(4);
     });
 
     it('should refresh immediately on return without changing the periodic schedule', () => {
@@ -962,11 +1226,13 @@ describe('ServiceRequestConversation', () => {
       expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
       expect(teardown).not.toHaveBeenCalled();
       expect(component.isLoading()).toBe(true);
+      storeStub.getMessages.mockReturnValue(of([firstMessage]));
       response$.next([firstMessage]);
       response$.complete();
       fixture.detectChanges();
       expect(teardown).toHaveBeenCalledTimes(1);
       expect(component.isLoading()).toBe(false);
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
     });
 
     it('should preserve the draft and wait for a return-triggered request across further events and timer ticks', () => {
@@ -978,7 +1244,9 @@ describe('ServiceRequestConversation', () => {
       fixture.detectChanges();
       const refresh$ = new Subject<ServiceRequestMessage[]>();
       const teardown = vi.fn();
-      storeStub.getMessages.mockReturnValue(refresh$.pipe(finalize(teardown)));
+      storeStub.getMessages
+        .mockReturnValueOnce(refresh$.pipe(finalize(teardown)))
+        .mockReturnValue(of([firstMessage]));
       visibility = 'hidden';
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
       visibility = 'visible';
@@ -1003,6 +1271,7 @@ describe('ServiceRequestConversation', () => {
       fixture.detectChanges();
       expect(teardown).toHaveBeenCalledTimes(1);
       expect(component.messageForm.controls.content.value).toBe('Brouillon au retour');
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
     });
 
     it('should defer visibility-triggered loading while sending and allow it again after the saved reply', () => {
@@ -1019,6 +1288,7 @@ describe('ServiceRequestConversation', () => {
       vi.advanceTimersByTime(10_000);
       expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
 
+      storeStub.getMessages.mockReturnValue(of([firstMessage, saved]));
       send$.next(saved);
       send$.complete();
       storeStub.getMessages.mockReturnValue(of([firstMessage, saved]));
@@ -1028,7 +1298,7 @@ describe('ServiceRequestConversation', () => {
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
       fixture.detectChanges();
 
-      expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
+      expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
       expect(component.messages()).toEqual([firstMessage, saved]);
       expect(component.isSending()).toBe(false);
     });
@@ -1244,7 +1514,11 @@ describe('ServiceRequestConversation', () => {
         loadInitial();
         const refresh$ = new Subject<ServiceRequestMessage[]>();
         const teardown = vi.fn();
-        storeStub.getMessages.mockReturnValue(refresh$.pipe(finalize(teardown)));
+        const followUp = new Subject<ServiceRequestMessage[]>();
+        storeStub.getMessages
+          .mockReturnValueOnce(refresh$.pipe(finalize(teardown)))
+          .mockReturnValueOnce(followUp)
+          .mockReturnValue(of([]));
         vi.advanceTimersByTime(10_000);
         const send$ = new Subject<ServiceRequestMessage>();
         storeStub.sendMessage.mockReturnValue(send$);
@@ -1263,6 +1537,7 @@ describe('ServiceRequestConversation', () => {
         expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
         send$.next(saved);
         send$.complete();
+        expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
         if (outcome === 'success') {
           refresh$.next([firstMessage]);
           refresh$.complete();
@@ -1273,10 +1548,12 @@ describe('ServiceRequestConversation', () => {
         expect(component.messages()).toEqual([firstMessage, saved]);
         expect(component.messageForm.controls.content.value).toBe('');
         expect(component.refreshError()).toBeNull();
+        followUp.next([firstMessage, saved]);
+        followUp.complete();
         storeStub.getMessages.mockReturnValue(of([firstMessage, saved]));
         vi.advanceTimersByTime(10_000);
         fixture.detectChanges();
-        expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
+        expect(storeStub.getMessages).toHaveBeenCalledTimes(4);
         expect(component.messages()).toEqual([firstMessage, saved]);
       },
     );

@@ -35,6 +35,8 @@ export class ServiceRequestConversation implements OnInit {
   private readonly messageLoadCancelled = new Subject<void>();
   private readonly serviceRequestRealtime = inject(ServiceRequestRealtime);
 
+  private refreshPending = false;
+
   readonly serviceRequestId = input.required<number>();
   readonly messages = signal<ServiceRequestMessage[]>([]);
   readonly isLoading = signal<boolean>(false);
@@ -58,17 +60,39 @@ export class ServiceRequestConversation implements OnInit {
       filter((event) => event.serviceRequestId === this.serviceRequestId()),
     );
 
-    merge(interval(10_000), fromEvent(this.document, 'visibilitychange'), conversationChanges)
+    merge(
+      interval(10_000),
+      fromEvent(this.document, 'visibilitychange'),
+      conversationChanges,
+      this.serviceRequestRealtime.connected$,
+    )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
-        if (
-          this.document.visibilityState === 'visible' &&
-          this.authSession.currentUser() !== null &&
-          this.loadError() === null
-        ) {
-          this.loadMessages(false);
-        }
+        this.requestRefresh();
       });
+  }
+
+  private requestRefresh(): void {
+    this.refreshPending = true;
+    this.flushPendingRefresh();
+  }
+
+  private flushPendingRefresh(): void {
+    if (
+      !this.refreshPending ||
+      this.destroyRef.destroyed ||
+      this.document.visibilityState !== 'visible' ||
+      this.authSession.currentUser() === null ||
+      this.loadError() !== null ||
+      this.isLoading() ||
+      this.isRefreshing() ||
+      this.isSending()
+    ) {
+      return;
+    }
+
+    this.refreshPending = false;
+    this.loadMessages(false);
   }
 
   private loadMessages(isInitialLoad: boolean): void {
@@ -92,6 +116,7 @@ export class ServiceRequestConversation implements OnInit {
         finalize(() => {
           this.isLoading.set(false);
           this.isRefreshing.set(false);
+          this.flushPendingRefresh();
         }),
       )
       .subscribe({
@@ -135,17 +160,19 @@ export class ServiceRequestConversation implements OnInit {
       return;
     }
 
-    this.messageLoadCancelled.next();
-
     const message = this.messageForm.getRawValue();
 
     this.isSending.set(true);
     this.sendError.set(null);
+    this.messageLoadCancelled.next();
     this.serviceRequestStore
       .sendMessage(this.serviceRequestId(), message)
       .pipe(
         takeUntilDestroyed(this.destroyRef),
-        finalize(() => this.isSending.set(false)),
+        finalize(() => {
+          this.isSending.set(false);
+          this.flushPendingRefresh();
+        }),
       )
       .subscribe({
         next: (savedMessage) => {

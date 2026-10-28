@@ -11,8 +11,10 @@ export class ServiceRequestRealtime {
   private socket: Socket | null = null;
 
   private readonly conversationChangedSubject = new Subject<ConversationChangedEvent>();
+  private readonly connectedSubject = new Subject<void>();
 
   readonly conversationChanged$ = this.conversationChangedSubject.asObservable();
+  readonly connected$ = this.connectedSubject.asObservable();
 
   connect(accessToken: string): void {
     this.disconnect();
@@ -25,6 +27,9 @@ export class ServiceRequestRealtime {
     this.socket = socket;
     socket.on('conversation.changed', (event: ConversationChangedEvent) => {
       this.conversationChangedSubject.next(event);
+    });
+    socket.on('connect', () => {
+      this.connectedSubject.next();
     });
 
     socket.connect();

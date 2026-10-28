@@ -19,14 +19,18 @@ import {
 } from './service-requests/services/service-request-realtime';
 
 let conversationChanges = new Subject<ConversationChangedEvent>();
+let connectedEvents = new Subject<void>();
 const realtimeStub = {
   connect: vi.fn(),
   disconnect: vi.fn(),
   conversationChanged$: conversationChanges.asObservable(),
+  connected$: connectedEvents.asObservable(),
 };
 
 beforeEach(() => {
   conversationChanges = new Subject<ConversationChangedEvent>();
+  connectedEvents = new Subject<void>();
+  realtimeStub.connected$ = connectedEvents.asObservable();
   realtimeStub.conversationChanged$ = conversationChanges.asObservable();
   realtimeStub.connect.mockReset();
   realtimeStub.disconnect.mockReset();
@@ -787,6 +791,24 @@ describe('App unread message session synchronization', () => {
         .querySelector('a[href="/service-requests/received"] .unread-badge')
         ?.textContent.trim(),
     ).toBe('3');
+  });
+
+  it('should reload HTTP counters and badges when the socket reconnects without a conversation notification', () => {
+    signIn().flush({ sentRequests: 1, receivedRequests: 0, total: 1 });
+    fixture.detectChanges();
+
+    connectedEvents.next();
+
+    const pending = httpTesting.expectOne(url);
+    expect(pending.request.headers.get('Authorization')).toBe('Bearer token-a');
+    pending.flush({ sentRequests: 0, receivedRequests: 2, total: 2 });
+    fixture.detectChanges();
+    expect(countsStore.counts()).toEqual({ sentRequests: 0, receivedRequests: 2, total: 2 });
+    expect(
+      fixture.nativeElement
+        .querySelector('a[href="/service-requests/received"] .unread-badge')
+        ?.textContent.trim(),
+    ).toBe('2');
   });
 
   it('should request current counts with the new token after token replacement', () => {
@@ -1688,5 +1710,50 @@ describe('App realtime session synchronization', () => {
     expect(unread.refresh).not.toHaveBeenCalled();
     signIn();
     expect(conversationChanges.observed).toBe(true);
+  });
+  it('should subscribe to connection events before the initial socket opens and refresh on every reconnection', () => {
+    realtimeStub.connect.mockImplementation(() => connectedEvents.next());
+    signIn();
+    expect(unread.refresh).toHaveBeenCalledTimes(2);
+    connectedEvents.next();
+    expect(unread.refresh).toHaveBeenCalledTimes(3);
+    expect(realtimeStub.connect).toHaveBeenCalledOnce();
+  });
+
+  it('should ignore queued connection events after logout and remove the subscription on cleanup', () => {
+    signIn();
+    unread.refresh.mockClear();
+    auth.logout();
+    connectedEvents.next();
+    expect(unread.refresh).not.toHaveBeenCalled();
+    fixture.detectChanges();
+    expect(connectedEvents.observed).toBe(false);
+  });
+
+  it.each(['token', 'account'])(
+    'should reject queued old-session connection events after a %s change',
+    (change) => {
+      signIn();
+      unread.refresh.mockClear();
+      if (change === 'token') auth.accessToken.set('renewed-token');
+      else auth.currentUser.set({ ...user, id: 9 });
+      connectedEvents.next();
+      expect(unread.refresh).not.toHaveBeenCalled();
+      fixture.detectChanges();
+      unread.refresh.mockClear();
+      connectedEvents.next();
+      expect(unread.refresh).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('should remove both realtime subscriptions when App is destroyed', () => {
+    signIn();
+    unread.refresh.mockClear();
+    fixture.destroy();
+    expect(connectedEvents.observed).toBe(false);
+    expect(conversationChanges.observed).toBe(false);
+    connectedEvents.next();
+    conversationChanges.next({ serviceRequestId: 42 });
+    expect(unread.refresh).not.toHaveBeenCalled();
   });
 });

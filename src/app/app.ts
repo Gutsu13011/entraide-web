@@ -8,7 +8,7 @@ import {
 } from '@angular/router';
 import { AuthSession } from './auth/services/auth-session';
 import { unreadMessageState } from './service-requests/services/unread-message-store';
-import { fromEvent, interval } from 'rxjs';
+import { fromEvent, interval, merge } from 'rxjs';
 import { ServiceRequestRealtime } from './service-requests/services/service-request-realtime';
 
 @Component({
@@ -76,18 +76,19 @@ export class App {
       }
 
       untracked(() => {
-        const changesSubscription = this.serviceRequestRealtime.conversationChanged$.subscribe(
-          () => {
-            if (
-              this.authSession.currentUser() !== currentUser ||
-              this.authSession.accessToken() !== accessToken
-            ) {
-              return;
-            }
+        const changesSubscription = merge(
+          this.serviceRequestRealtime.conversationChanged$,
+          this.serviceRequestRealtime.connected$,
+        ).subscribe(() => {
+          if (
+            this.authSession.currentUser() !== currentUser ||
+            this.authSession.accessToken() !== accessToken
+          ) {
+            return;
+          }
 
-            this.unreadMessageState.refresh();
-          },
-        );
+          this.unreadMessageState.refresh();
+        });
         this.serviceRequestRealtime.connect(accessToken);
 
         onCleanup(() => {
