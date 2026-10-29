@@ -1,10 +1,21 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, DestroyRef } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ServiceOfferingStore } from '../../../service-offerings/services/service-offering-store';
 import { ServiceOffering, ServicePricingType } from '../../../models/service-offering.model';
-import { finalize } from 'rxjs';
+import {
+  catchError,
+  distinctUntilChanged,
+  EMPTY,
+  finalize,
+  map,
+  Subject,
+  switchMap,
+  takeUntil,
+  tap,
+} from 'rxjs';
 import { ServiceRequestStore } from '../../services/service-request-store';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
   imports: [ReactiveFormsModule, RouterLink],
@@ -17,6 +28,8 @@ export class ServiceRequestForm implements OnInit {
   private readonly serviceOfferingStore = inject(ServiceOfferingStore);
   private readonly serviceRequestStore = inject(ServiceRequestStore);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly offeringChange$ = new Subject<void>();
 
   readonly isSubmitting = signal<boolean>(false);
   readonly submitError = signal<string | null>(null);
@@ -26,33 +39,62 @@ export class ServiceRequestForm implements OnInit {
       validators: [Validators.required, Validators.pattern(/\S/)],
     }),
   });
-  readonly serviceProviderId = Number(this.route.snapshot.paramMap.get('id'));
-  readonly serviceOfferingId = Number(this.route.snapshot.paramMap.get('offeringId'));
   readonly serviceOffering = signal<ServiceOffering | null>(null);
   readonly isLoading = signal<boolean>(false);
   readonly loadError = signal<string | null>(null);
   readonly servicePricingType = ServicePricingType;
 
+  serviceProviderId = 0;
+  serviceOfferingId = 0;
+
   ngOnInit(): void {
-    this.isLoading.set(true);
-    this.serviceOfferingStore
-      .getAll(this.serviceProviderId)
-      .pipe(finalize(() => this.isLoading.set(false)))
-      .subscribe({
-        next: (serviceOfferings) => {
-          const serviceOffering = serviceOfferings.find((so) => so.id === this.serviceOfferingId);
+    this.route.paramMap
+      .pipe(
+        map((params) => ({
+          serviceProviderId: Number(params.get('id')),
+          serviceOfferingId: Number(params.get('offeringId')),
+        })),
+        distinctUntilChanged(
+          (previous, current) =>
+            previous.serviceProviderId === current.serviceProviderId &&
+            previous.serviceOfferingId === current.serviceOfferingId,
+        ),
+        switchMap(({ serviceProviderId, serviceOfferingId }) => {
+          this.offeringChange$.next();
+          this.serviceProviderId = serviceProviderId;
+          this.serviceOfferingId = serviceOfferingId;
+          this.isLoading.set(true);
+          this.loadError.set(null);
+          this.submitError.set(null);
+          this.serviceOffering.set(null);
+          this.serviceRequestForm.reset();
 
-          if (serviceOffering === undefined) {
-            this.loadError.set('Cette offre de service est introuvable.');
-            return;
-          }
+          return this.serviceOfferingStore.getAll(this.serviceProviderId).pipe(
+            tap((serviceOfferings) => {
+              const serviceOffering = serviceOfferings.find(
+                (so) => so.id === this.serviceOfferingId,
+              );
 
-          this.serviceOffering.set(serviceOffering);
-        },
-        error: (error) => {
-          this.loadError.set('Impossible de charger cette offre de service. Veuillez réessayer.');
-        },
-      });
+              if (serviceOffering === undefined) {
+                this.loadError.set('Cette offre de service est introuvable.');
+                return;
+              }
+
+              this.serviceOffering.set(serviceOffering);
+            }),
+            catchError(() => {
+              this.loadError.set(
+                'Impossible de charger cette offre de service. Veuillez réessayer.',
+              );
+
+              return EMPTY;
+            }),
+            finalize(() => this.isLoading.set(false)),
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe();
   }
 
   onSubmit(): void {
@@ -76,7 +118,11 @@ export class ServiceRequestForm implements OnInit {
     this.submitError.set(null);
     this.serviceRequestStore
       .add(this.serviceProviderId, this.serviceOfferingId, formValue)
-      .pipe(finalize(() => this.isSubmitting.set(false)))
+      .pipe(
+        takeUntil(this.offeringChange$),
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.isSubmitting.set(false)),
+      )
       .subscribe({
         next: () => {
           this.router.navigate(['/service-providers', this.serviceProviderId]);

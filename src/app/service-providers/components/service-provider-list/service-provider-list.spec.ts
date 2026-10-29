@@ -1,8 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ServiceProviderList } from './service-provider-list';
 import { provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { finalize, of, Subject } from 'rxjs';
+import type { PaginatedServiceProviders } from '../../../models/paginated-service-providers.model';
 import { ServiceProviderStore } from '../../services/service-provider-store';
+import type { ServiceProvider } from '../../../models/service-provider.model';
 
 describe('ServiceProviderList', () => {
   const serviceProvidersStoreStub = {
@@ -10,6 +12,18 @@ describe('ServiceProviderList', () => {
   };
   let component: ServiceProviderList;
   let fixture: ComponentFixture<ServiceProviderList>;
+  const provider: ServiceProvider = {
+    id: 0,
+    firstName: 'John',
+    lastName: 'Doe',
+    profession: 'Plombier',
+    city: 'Paris',
+    description: "Plombier expérimenté avec 5 ans d'expérience.",
+    hourlyRate: 25,
+    imageUrl: '',
+    available: true,
+    ownerUserId: null,
+  };
 
   beforeEach(async () => {
     serviceProvidersStoreStub.getAll
@@ -28,8 +42,110 @@ describe('ServiceProviderList', () => {
     await fixture.whenStable();
   });
 
-  it('should create', () => {
-    expect(component).toBeTruthy();
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should cancel the previous search, stay loading and retain the latest results after a late response', () => {
+    const parisResponse = new Subject<PaginatedServiceProviders>();
+    const lyonResponse = new Subject<PaginatedServiceProviders>();
+    const parisFinalized = vi.fn();
+    const lyonFinalized = vi.fn();
+    const lyonResults: PaginatedServiceProviders = {
+      data: [{ ...provider, id: 13, city: 'Lyon' }],
+      total: 1,
+      page: 1,
+      limit: 10,
+      totalPages: 1,
+    };
+    serviceProvidersStoreStub.getAll
+      .mockReturnValueOnce(parisResponse.pipe(finalize(parisFinalized)))
+      .mockReturnValueOnce(lyonResponse.pipe(finalize(lyonFinalized)));
+
+    component.cityControl.setValue('Paris');
+    component.applyFilters();
+    expect(serviceProvidersStoreStub.getAll).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 1, city: 'Paris' }),
+    );
+    expect(parisFinalized).not.toHaveBeenCalled();
+
+    component.cityControl.setValue('Lyon');
+    component.applyFilters();
+
+    expect(serviceProvidersStoreStub.getAll).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 1, city: 'Lyon' }),
+    );
+    expect(parisFinalized).toHaveBeenCalledTimes(1);
+    expect(lyonFinalized).not.toHaveBeenCalled();
+    expect(component.isLoading()).toBe(true);
+    expect(component.errorMessage()).toBeNull();
+
+    lyonResponse.next(lyonResults);
+    lyonResponse.complete();
+
+    expect(component.isLoading()).toBe(false);
+    expect(lyonFinalized).toHaveBeenCalledTimes(1);
+
+    parisResponse.next({ data: [provider], total: 11, page: 2, limit: 10, totalPages: 2 });
+    parisResponse.complete();
+
+    expect(component.serviceProviders()).toEqual(lyonResults.data);
+    expect(component.currentPage()).toBe(1);
+    expect(component.total()).toBe(1);
+    expect(component.totalPages()).toBe(1);
+    expect(component.cityFilter()).toBe('Lyon');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.provider-grid').textContent).toContain('Lyon');
+    expect(fixture.nativeElement.querySelector('.provider-grid').textContent).not.toContain(
+      'Paris',
+    );
+  });
+
+  it('should show a loading error and still allow a later successful page request', () => {
+    const failedResponse = new Subject<PaginatedServiceProviders>();
+    const retryResponse = new Subject<PaginatedServiceProviders>();
+    const retryResults: PaginatedServiceProviders = {
+      data: [provider],
+      total: 21,
+      page: 3,
+      limit: 10,
+      totalPages: 3,
+    };
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    serviceProvidersStoreStub.getAll
+      .mockReturnValueOnce(failedResponse)
+      .mockReturnValueOnce(retryResponse);
+
+    component.loadPage(2);
+    expect(component.isLoading()).toBe(true);
+    failedResponse.error(new Error('Network unavailable'));
+    fixture.detectChanges();
+
+    expect(component.isLoading()).toBe(false);
+    expect(component.errorMessage()).toBe('Impossible de charger les intervenants.');
+    expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain(
+      'Impossible de charger les intervenants.',
+    );
+    expect(component.currentPage()).toBe(1);
+
+    component.loadPage(3);
+    fixture.detectChanges();
+
+    expect(serviceProvidersStoreStub.getAll).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 3 }),
+    );
+    expect(component.errorMessage()).toBeNull();
+    expect(component.isLoading()).toBe(true);
+    expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
+
+    retryResponse.next(retryResults);
+    retryResponse.complete();
+
+    expect(component.isLoading()).toBe(false);
+    expect(component.serviceProviders()).toEqual(retryResults.data);
+    expect(component.currentPage()).toBe(3);
+    expect(component.total()).toBe(21);
+    expect(component.totalPages()).toBe(3);
   });
 
   it('should display an empty state when no service providers are returned', () => {
@@ -37,24 +153,36 @@ describe('ServiceProviderList', () => {
     expect(element.textContent).toContain('Aucun intervenant disponible.');
   });
 
+  it('should cancel a pending page load on destruction and ignore its late results', () => {
+    const response = new Subject<PaginatedServiceProviders>();
+    const requestFinalized = vi.fn();
+    const initialResults = component.serviceProviders();
+    serviceProvidersStoreStub.getAll.mockReturnValue(response.pipe(finalize(requestFinalized)));
+
+    component.loadPage(2);
+
+    expect(component.isLoading()).toBe(true);
+    expect(requestFinalized).not.toHaveBeenCalled();
+
+    fixture.destroy();
+
+    expect(requestFinalized).toHaveBeenCalledTimes(1);
+    expect(component.isLoading()).toBe(false);
+
+    response.next({ data: [], total: 0, page: 2, limit: 10, totalPages: 0 });
+    response.complete();
+
+    expect(component.serviceProviders()).toBe(initialResults);
+    expect(component.currentPage()).toBe(1);
+    expect(component.errorMessage()).toBeNull();
+  });
+
   it('should load the next page when clicking next.', async () => {
     const element = fixture.nativeElement as HTMLElement;
 
     serviceProvidersStoreStub.getAll.mockReturnValue(
       of({
-        data: [
-          {
-            id: 0,
-            firstName: 'John',
-            lastName: 'Doe',
-            profession: 'Plombier',
-            city: 'Paris',
-            description: "Plombier expérimenté avec 5 ans d'expérience.",
-            hourlyRate: 25,
-            imageUrl: '',
-            available: true,
-          },
-        ],
+        data: [provider],
         total: 11,
         page: 2,
         limit: 10,
@@ -94,19 +222,7 @@ describe('ServiceProviderList', () => {
 
     serviceProvidersStoreStub.getAll.mockReturnValue(
       of({
-        data: [
-          {
-            id: 0,
-            firstName: 'John',
-            lastName: 'Doe',
-            profession: 'Plombier',
-            city: 'Paris',
-            description: "Plombier expérimenté avec 5 ans d'expérience.",
-            hourlyRate: 25,
-            imageUrl: '',
-            available: true,
-          },
-        ],
+        data: [provider],
         total: 2,
         page: 1,
         limit: 1,
@@ -141,19 +257,7 @@ describe('ServiceProviderList', () => {
 
     serviceProvidersStoreStub.getAll.mockReturnValue(
       of({
-        data: [
-          {
-            id: 0,
-            firstName: 'John',
-            lastName: 'Doe',
-            profession: 'Plombier',
-            city: 'Paris',
-            description: "Plombier expérimenté avec 5 ans d'expérience.",
-            hourlyRate: 25,
-            imageUrl: '',
-            available: true,
-          },
-        ],
+        data: [provider],
         total: 1,
         page: 1,
         limit: 10,

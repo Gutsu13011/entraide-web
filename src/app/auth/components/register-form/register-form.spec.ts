@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { RegisterForm } from './register-form';
-import { of, throwError } from 'rxjs';
+import { finalize, of, Subject, throwError } from 'rxjs';
 import { AuthStore } from '../../services/auth-store';
 import { Router } from '@angular/router';
 
@@ -30,10 +30,6 @@ describe('RegisterForm', () => {
     fixture = TestBed.createComponent(RegisterForm);
     component = fixture.componentInstance;
     await fixture.whenStable();
-  });
-
-  it('should create', () => {
-    expect(component).toBeTruthy();
   });
 
   it('should reject passwords shorter than 15 characters', () => {
@@ -92,6 +88,44 @@ describe('RegisterForm', () => {
     expect(component.isSubmitting()).toBe(false);
     expect(routerStub.navigate).not.toHaveBeenCalled();
   });
+
+  it.each(['success', 'error'] as const)(
+    'should cancel pending registration on destruction and ignore a late %s',
+    (response) => {
+      const registrationResponse = new Subject<void>();
+      const requestFinalized = vi.fn();
+      authStoreStub.register.mockReturnValue(registrationResponse.pipe(finalize(requestFinalized)));
+      component.registerForm.setValue({
+        firstName: 'Alice',
+        lastName: 'Martin',
+        email: 'alicemartin@mail.com',
+        password: 'a'.repeat(15),
+      });
+
+      component.onSubmit();
+
+      expect(authStoreStub.register).toHaveBeenCalledTimes(1);
+      expect(component.isSubmitting()).toBe(true);
+      expect(requestFinalized).not.toHaveBeenCalled();
+      expect(routerStub.navigate).not.toHaveBeenCalled();
+
+      fixture.destroy();
+
+      expect(requestFinalized).toHaveBeenCalledTimes(1);
+      expect(component.isSubmitting()).toBe(false);
+
+      if (response === 'success') {
+        registrationResponse.next(undefined);
+        registrationResponse.complete();
+      } else {
+        registrationResponse.error(new Error('Late registration failure'));
+      }
+
+      expect(routerStub.navigate).not.toHaveBeenCalled();
+      expect(component.submitError()).toBeNull();
+      expect(requestFinalized).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('should update the email control when typing in the email input', () => {
     fixture.detectChanges();

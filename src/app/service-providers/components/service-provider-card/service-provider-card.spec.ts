@@ -17,7 +17,6 @@ describe('ServiceProviderCard', () => {
     ownerUserId: null,
   };
 
-  let component: ServiceProviderCard;
   let fixture: ComponentFixture<ServiceProviderCard>;
 
   beforeEach(async () => {
@@ -28,12 +27,7 @@ describe('ServiceProviderCard', () => {
 
     fixture = TestBed.createComponent(ServiceProviderCard);
     fixture.componentRef.setInput('serviceProvider', mockServiceProvider);
-    component = fixture.componentInstance;
     await fixture.whenStable();
-  });
-
-  it('should create', () => {
-    expect(component).toBeTruthy();
   });
 
   it('should render title', () => {

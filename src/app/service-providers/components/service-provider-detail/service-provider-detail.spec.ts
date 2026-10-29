@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { ServiceProviderDetail } from './service-provider-detail';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { of, Subject, throwError } from 'rxjs';
+import { finalize, of, Subject, throwError } from 'rxjs';
 import { ServiceProviderStore } from '../../services/service-provider-store';
 import type { ServiceProvider } from '../../../models/service-provider.model';
 import { ReviewStore } from '../../../reviews/services/review-store';
@@ -96,6 +96,7 @@ describe('ServiceProviderDetail', () => {
       imports: [ServiceProviderDetail],
       providers: [
         provideRouter([
+          { path: '', pathMatch: 'full', children: [] },
           {
             path: 'service-providers/:id',
             component: ServiceProviderDetail,
@@ -130,9 +131,386 @@ describe('ServiceProviderDetail', () => {
     component = await harness.navigateByUrl('/service-providers/7', ServiceProviderDetail);
   };
 
-  it('should create', async () => {
+  it('should cancel all detail loads on departure and ignore their late responses', async () => {
+    const providerResponse = new Subject<ServiceProvider>();
+    const reviewsResponse = new Subject<Review[]>();
+    const summaryResponse = new Subject<ReviewSummary>();
+    const offeringsResponse = new Subject<ServiceOffering[]>();
+    const finalized = {
+      provider: vi.fn(),
+      reviews: vi.fn(),
+      summary: vi.fn(),
+      offerings: vi.fn(),
+    };
+    vi.spyOn(serviceProvidersStoreStub, 'getById').mockReturnValue(
+      providerResponse.pipe(finalize(finalized.provider)),
+    );
+    reviewStoreStub.getAll.mockReturnValue(reviewsResponse.pipe(finalize(finalized.reviews)));
+    reviewStoreStub.getSummary.mockReturnValue(summaryResponse.pipe(finalize(finalized.summary)));
+    serviceOfferingsStoreStub.getAll.mockReturnValue(
+      offeringsResponse.pipe(finalize(finalized.offerings)),
+    );
     await openDetail();
-    expect(component).toBeTruthy();
+
+    for (const requestFinalized of Object.values(finalized)) {
+      expect(requestFinalized).not.toHaveBeenCalled();
+    }
+    expect(component.isLoading()).toBe(true);
+    expect(component.isReviewLoading()).toBe(true);
+    expect(component.isServiceOfferingsLoading()).toBe(true);
+
+    await harness.navigateByUrl('/');
+
+    for (const requestFinalized of Object.values(finalized)) {
+      expect(requestFinalized).toHaveBeenCalledTimes(1);
+    }
+    expect(component.isLoading()).toBe(false);
+    expect(component.isReviewLoading()).toBe(false);
+    expect(component.isServiceOfferingsLoading()).toBe(false);
+
+    providerResponse.next(mockServiceProvider);
+    providerResponse.complete();
+    reviewsResponse.next(mockReviews);
+    reviewsResponse.complete();
+    summaryResponse.next(mockReviewSummary);
+    summaryResponse.complete();
+    offeringsResponse.next(mockServiceOfferings);
+    offeringsResponse.complete();
+
+    expect(component.serviceProvider()).toBeUndefined();
+    expect(component.reviews()).toEqual([]);
+    expect(component.reviewSummary()).toEqual({ reviewCount: 0, averageRating: null });
+    expect(component.serviceOfferings()).toEqual([]);
+  });
+
+  it.each(['profile', 'offering'] as const)(
+    'should cancel pending %s deletion on departure without applying its late response',
+    async (target) => {
+      authSessionStub.currentUser.set(currentUserMock);
+      await openDetail();
+      const originalOfferings = component.serviceOfferings();
+      const response = new Subject<void>();
+      const requestFinalized = vi.fn();
+      const remove =
+        target === 'profile' ? serviceProvidersStoreStub.remove : serviceOfferingsStoreStub.delete;
+      remove.mockReturnValue(response.pipe(finalize(requestFinalized)));
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const navigateSpy = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+
+      if (target === 'profile') {
+        component.onDelete();
+        expect(component.isDeleting()).toBe(true);
+      } else {
+        component.onDeleteOffering(mockServiceOfferings[0]);
+        expect(component.deletingOfferingId()).toBe(mockServiceOfferings[0].id);
+      }
+      expect(remove).toHaveBeenCalledTimes(1);
+      expect(requestFinalized).not.toHaveBeenCalled();
+
+      await harness.navigateByUrl('/');
+
+      expect(requestFinalized).toHaveBeenCalledTimes(1);
+      expect(component.isDeleting()).toBe(false);
+      expect(component.deletingOfferingId()).toBeNull();
+
+      response.next(undefined);
+      response.complete();
+
+      expect(navigateSpy).not.toHaveBeenCalled();
+      expect(component.serviceOfferings()).toBe(originalOfferings);
+      expect(component.serviceProvider()).toEqual(mockServiceProvider);
+      expect(component.deleteError()).toBeNull();
+      expect(component.deleteOfferingError()).toBeNull();
+    },
+  );
+
+  describe('navigation between provider profiles', () => {
+    const nextProvider: ServiceProvider = {
+      ...mockServiceProvider,
+      id: 8,
+      firstName: 'Alice',
+      lastName: 'Martin',
+      ownerUserId: 99,
+    };
+    const nextReviews: Review[] = [
+      { ...mockReviews[0], id: 8, serviceProviderId: 8, rating: 4, comment: 'Avis pour Alice.' },
+    ];
+    const nextSummary: ReviewSummary = { reviewCount: 1, averageRating: 4 };
+    const nextOfferings: ServiceOffering[] = [
+      { ...mockServiceOfferings[0], id: 8, serviceProviderId: 8, title: 'Offre pour Alice' },
+    ];
+
+    it('should reuse the component, clear the previous profile and display the new data and actions', async () => {
+      authSessionStub.currentUser.set(currentUserMock);
+      const getProvider = vi.spyOn(serviceProvidersStoreStub, 'getById');
+      await openDetail();
+      expect(component.isOwner()).toBe(true);
+      const providerResponse = new Subject<ServiceProvider>();
+      const reviewsResponse = new Subject<Review[]>();
+      const summaryResponse = new Subject<ReviewSummary>();
+      const offeringsResponse = new Subject<ServiceOffering[]>();
+      getProvider.mockReturnValue(providerResponse);
+      reviewStoreStub.getAll.mockReturnValue(reviewsResponse);
+      reviewStoreStub.getSummary.mockReturnValue(summaryResponse);
+      serviceOfferingsStoreStub.getAll.mockReturnValue(offeringsResponse);
+
+      const reused = await harness.navigateByUrl('/service-providers/8', ServiceProviderDetail);
+
+      expect(reused).toBe(component);
+      expect(component.serviceProviderId).toBe(8);
+      expect(getProvider).toHaveBeenLastCalledWith(8);
+      expect(reviewStoreStub.getAll).toHaveBeenLastCalledWith(8);
+      expect(reviewStoreStub.getSummary).toHaveBeenLastCalledWith(8);
+      expect(serviceOfferingsStoreStub.getAll).toHaveBeenLastCalledWith(8);
+      expect(component.serviceProvider()).toBeUndefined();
+      expect(component.isOwner()).toBe(false);
+      expect(component.reviews()).toEqual([]);
+      expect(component.reviewSummary()).toEqual({ reviewCount: 0, averageRating: null });
+      expect(component.serviceOfferings()).toEqual([]);
+      expect(component.isLoading()).toBe(true);
+      expect(component.isReviewLoading()).toBe(true);
+      expect(component.isServiceOfferingsLoading()).toBe(true);
+      expect(harness.routeNativeElement?.textContent).not.toContain('John Doe');
+      expect(harness.routeNativeElement?.querySelector('.provider-actions')).toBeNull();
+
+      providerResponse.next(nextProvider);
+      providerResponse.complete();
+      reviewsResponse.next(nextReviews);
+      reviewsResponse.complete();
+      summaryResponse.next(nextSummary);
+      summaryResponse.complete();
+      offeringsResponse.next(nextOfferings);
+      offeringsResponse.complete();
+      harness.detectChanges();
+
+      expect(component.serviceProvider()).toEqual(nextProvider);
+      expect(component.reviews()).toEqual(nextReviews);
+      expect(component.reviewSummary()).toEqual(nextSummary);
+      expect(component.serviceOfferings()).toEqual(nextOfferings);
+      expect(component.isLoading()).toBe(false);
+      expect(component.isReviewLoading()).toBe(false);
+      expect(component.isServiceOfferingsLoading()).toBe(false);
+      expect(harness.routeNativeElement?.textContent).toContain('Alice Martin');
+      expect(harness.routeNativeElement?.textContent).toContain('Avis pour Alice.');
+      expect(harness.routeNativeElement?.textContent).toContain('Offre pour Alice');
+      expect(harness.routeNativeElement?.querySelector('.provider-actions')).toBeNull();
+      expect(
+        harness.routeNativeElement?.querySelector(
+          'a[href="/service-providers/8/service-offerings/8/service-requests/new"]',
+        ),
+      ).toBeTruthy();
+    });
+
+    it('should cancel all previous loads and keep the new loads active until their responses arrive', async () => {
+      const oldProvider = new Subject<ServiceProvider>();
+      const oldReviews = new Subject<Review[]>();
+      const oldSummary = new Subject<ReviewSummary>();
+      const oldOfferings = new Subject<ServiceOffering[]>();
+      const stopped = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+      const newProvider = new Subject<ServiceProvider>();
+      const newReviews = new Subject<Review[]>();
+      const newSummary = new Subject<ReviewSummary>();
+      const newOfferings = new Subject<ServiceOffering[]>();
+      vi.spyOn(serviceProvidersStoreStub, 'getById')
+        .mockReturnValueOnce(oldProvider.pipe(finalize(stopped[0])))
+        .mockReturnValueOnce(newProvider);
+      reviewStoreStub.getAll
+        .mockReturnValueOnce(oldReviews.pipe(finalize(stopped[1])))
+        .mockReturnValueOnce(newReviews);
+      reviewStoreStub.getSummary
+        .mockReturnValueOnce(oldSummary.pipe(finalize(stopped[2])))
+        .mockReturnValueOnce(newSummary);
+      serviceOfferingsStoreStub.getAll
+        .mockReturnValueOnce(oldOfferings.pipe(finalize(stopped[3])))
+        .mockReturnValueOnce(newOfferings);
+      await openDetail();
+      for (const stop of stopped) expect(stop).not.toHaveBeenCalled();
+
+      expect(await harness.navigateByUrl('/service-providers/8', ServiceProviderDetail)).toBe(
+        component,
+      );
+
+      for (const stop of stopped) expect(stop).toHaveBeenCalledTimes(1);
+      expect(component.isLoading()).toBe(true);
+      expect(component.isReviewLoading()).toBe(true);
+      expect(component.isServiceOfferingsLoading()).toBe(true);
+      newProvider.next(nextProvider);
+      newProvider.complete();
+      newReviews.next(nextReviews);
+      newReviews.complete();
+      newSummary.next(nextSummary);
+      newSummary.complete();
+      newOfferings.next(nextOfferings);
+      newOfferings.complete();
+
+      oldProvider.next(mockServiceProvider);
+      oldProvider.complete();
+      oldReviews.next(mockReviews);
+      oldReviews.complete();
+      oldSummary.next(mockReviewSummary);
+      oldSummary.complete();
+      oldOfferings.next(mockServiceOfferings);
+      oldOfferings.complete();
+      harness.detectChanges();
+
+      expect(component.serviceProvider()).toEqual(nextProvider);
+      expect(component.reviews()).toEqual(nextReviews);
+      expect(component.reviewSummary()).toEqual(nextSummary);
+      expect(component.serviceOfferings()).toEqual(nextOfferings);
+      expect(component.isLoading()).toBe(false);
+      expect(component.isReviewLoading()).toBe(false);
+      expect(component.isServiceOfferingsLoading()).toBe(false);
+      expect(harness.routeNativeElement?.textContent).toContain('Offre pour Alice');
+      expect(harness.routeNativeElement?.textContent).not.toContain('John Doe');
+    });
+
+    it('should recover all loaders and clear their errors when navigating after failed requests', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.spyOn(serviceProvidersStoreStub, 'getById')
+        .mockReturnValueOnce(throwError(() => new Error('Profile unavailable')))
+        .mockReturnValueOnce(of(nextProvider));
+      reviewStoreStub.getAll
+        .mockReturnValueOnce(throwError(() => new Error('Reviews unavailable')))
+        .mockReturnValueOnce(of(nextReviews));
+      reviewStoreStub.getSummary
+        .mockReturnValueOnce(of(mockReviewSummary))
+        .mockReturnValueOnce(of(nextSummary));
+      serviceOfferingsStoreStub.getAll
+        .mockReturnValueOnce(throwError(() => new Error('Offerings unavailable')))
+        .mockReturnValueOnce(of(nextOfferings));
+      await openDetail();
+      expect(component.errorMessage()).toBe('Impossible de charger cet intervenant.');
+      expect(component.reviewsErrorMessage()).toBe('Impossible de charger les avis.');
+      expect(component.serviceOfferingErrorMessage()).toBe('Impossible de charger les offres.');
+
+      expect(await harness.navigateByUrl('/service-providers/8', ServiceProviderDetail)).toBe(
+        component,
+      );
+
+      expect(component.errorMessage()).toBeNull();
+      expect(component.reviewsErrorMessage()).toBeNull();
+      expect(component.serviceOfferingErrorMessage()).toBeNull();
+      expect(component.serviceProvider()).toEqual(nextProvider);
+      expect(component.reviews()).toEqual(nextReviews);
+      expect(component.reviewSummary()).toEqual(nextSummary);
+      expect(component.serviceOfferings()).toEqual(nextOfferings);
+      expect(harness.routeNativeElement?.querySelector('[role="alert"]')).toBeNull();
+    });
+
+    it('should clear previous deletion errors and target the current provider for subsequent actions', async () => {
+      authSessionStub.currentUser.set(currentUserMock);
+      vi.spyOn(serviceProvidersStoreStub, 'getById')
+        .mockReturnValueOnce(of(mockServiceProvider))
+        .mockReturnValueOnce(of({ ...nextProvider, ownerUserId: currentUserMock.id }));
+      serviceOfferingsStoreStub.getAll
+        .mockReturnValueOnce(of(mockServiceOfferings))
+        .mockReturnValueOnce(of(nextOfferings));
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const navigateSpy = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      serviceProvidersStoreStub.remove.mockReturnValue(
+        throwError(() => new Error('Deletion failed')),
+      );
+      serviceOfferingsStoreStub.delete.mockReturnValue(
+        throwError(() => new Error('Deletion failed')),
+      );
+      await openDetail();
+      component.onDelete();
+      component.onDeleteOffering(mockServiceOfferings[0]);
+      expect(component.deleteError()).not.toBeNull();
+      expect(component.deleteOfferingError()).not.toBeNull();
+
+      expect(await harness.navigateByUrl('/service-providers/8', ServiceProviderDetail)).toBe(
+        component,
+      );
+
+      expect(component.deleteError()).toBeNull();
+      expect(component.deleteOfferingError()).toBeNull();
+      component.onDeleteOffering(nextOfferings[0]);
+      component.onDelete();
+      expect(serviceOfferingsStoreStub.delete).toHaveBeenLastCalledWith(8, 8);
+      expect(serviceProvidersStoreStub.remove).toHaveBeenLastCalledWith(8);
+      expect(navigateSpy).not.toHaveBeenCalled();
+    });
+
+    it('should not reload the profile when route changes keep the same provider id', async () => {
+      const getProvider = vi.spyOn(serviceProvidersStoreStub, 'getById');
+      await openDetail();
+
+      expect(
+        await harness.navigateByUrl(
+          '/service-providers/7;tab=reviews?source=menu',
+          ServiceProviderDetail,
+        ),
+      ).toBe(component);
+
+      expect(getProvider).toHaveBeenCalledTimes(1);
+      expect(reviewStoreStub.getAll).toHaveBeenCalledTimes(1);
+      expect(reviewStoreStub.getSummary).toHaveBeenCalledTimes(1);
+      expect(serviceOfferingsStoreStub.getAll).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      { target: 'profile', outcome: 'success' },
+      { target: 'profile', outcome: 'error' },
+      { target: 'offering', outcome: 'success' },
+      { target: 'offering', outcome: 'error' },
+    ] as const)(
+      'should cancel the previous $target deletion and ignore its late $outcome on the next profile',
+      async ({ target, outcome }) => {
+        authSessionStub.currentUser.set(currentUserMock);
+        vi.spyOn(serviceProvidersStoreStub, 'getById')
+          .mockReturnValueOnce(of(mockServiceProvider))
+          .mockReturnValueOnce(of({ ...nextProvider, ownerUserId: currentUserMock.id }));
+        serviceOfferingsStoreStub.getAll
+          .mockReturnValueOnce(of(mockServiceOfferings))
+          .mockReturnValueOnce(of(nextOfferings));
+        await openDetail();
+        const response = new Subject<void>();
+        const stopped = vi.fn();
+        const remove =
+          target === 'profile'
+            ? serviceProvidersStoreStub.remove
+            : serviceOfferingsStoreStub.delete;
+        remove.mockReturnValue(response.pipe(finalize(stopped)));
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        const navigateSpy = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+        if (target === 'profile') {
+          component.onDelete();
+          expect(component.isDeleting()).toBe(true);
+          expect(remove).toHaveBeenCalledWith(7);
+        } else {
+          component.onDeleteOffering(mockServiceOfferings[0]);
+          expect(component.deletingOfferingId()).toBe(1);
+          expect(remove).toHaveBeenCalledWith(7, 1);
+        }
+        expect(stopped).not.toHaveBeenCalled();
+
+        expect(await harness.navigateByUrl('/service-providers/8', ServiceProviderDetail)).toBe(
+          component,
+        );
+
+        expect(stopped).toHaveBeenCalledTimes(1);
+        expect(component.isDeleting()).toBe(false);
+        expect(component.deletingOfferingId()).toBeNull();
+        if (outcome === 'success') {
+          response.next(undefined);
+          response.complete();
+        } else {
+          response.error(new Error('Old deletion failed'));
+        }
+        harness.detectChanges();
+
+        expect(navigateSpy).not.toHaveBeenCalled();
+        expect(TestBed.inject(Router).url).toBe('/service-providers/8');
+        expect(component.serviceOfferings()).toBe(nextOfferings);
+        expect(component.deleteError()).toBeNull();
+        expect(component.deleteOfferingError()).toBeNull();
+        const deleteButtons =
+          harness.routeNativeElement!.querySelectorAll<HTMLButtonElement>('.danger-button');
+        expect(deleteButtons.length).toBeGreaterThan(0);
+        for (const button of deleteButtons) expect(button.disabled).toBe(false);
+      },
+    );
   });
 
   it('should show the add-offering link to the provider owner', async () => {

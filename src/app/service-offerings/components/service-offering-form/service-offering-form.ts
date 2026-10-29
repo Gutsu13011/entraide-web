@@ -1,11 +1,23 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule, FormGroup, Validators } from '@angular/forms';
 import { CreateServiceOffering, ServicePricingType } from '../../../models/service-offering.model';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ServiceOfferingStore } from '../../services/service-offering-store';
-import { finalize, forkJoin } from 'rxjs';
+import {
+  catchError,
+  distinctUntilChanged,
+  EMPTY,
+  finalize,
+  forkJoin,
+  map,
+  Subject,
+  switchMap,
+  takeUntil,
+  tap,
+} from 'rxjs';
 import { AuthSession } from '../../../auth/services/auth-session';
 import { ServiceProviderStore } from '../../../service-providers/services/service-provider-store';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
   imports: [ReactiveFormsModule, RouterLink],
@@ -18,7 +30,9 @@ export class ServiceOfferingForm {
   private readonly serviceOfferingStore = inject(ServiceOfferingStore);
   private readonly router = inject(Router);
   private readonly authSession = inject(AuthSession);
-  private readonly serviceProviderService = inject(ServiceProviderStore);
+  private readonly serviceProviderStore = inject(ServiceProviderStore);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly offeringChange$ = new Subject<void>();
 
   readonly servicePricingType = ServicePricingType;
   readonly isSubmitting = signal<boolean>(false);
@@ -41,71 +55,113 @@ export class ServiceOfferingForm {
       validators: [Validators.min(0.01), Validators.required],
     }),
   });
-  readonly serviceProviderId: number = Number(this.route.snapshot.paramMap.get('id'));
-  readonly serviceOfferingId: number | null = this.route.snapshot.paramMap.get('offeringId')
-    ? Number(this.route.snapshot.paramMap.get('offeringId'))
-    : null;
-  readonly isEditMode: boolean = this.serviceOfferingId !== null;
   readonly isLoading = signal<boolean>(false);
   readonly loadError = signal<string | null>(null);
 
+  serviceProviderId = 0;
+  serviceOfferingId: number | null = null;
+
+  get isEditMode(): boolean {
+    return this.serviceOfferingId !== null;
+  }
+
   ngOnInit() {
     const serviceOfferingControl = this.serviceOfferingForm.controls;
-    serviceOfferingControl.pricingType.valueChanges.subscribe((value) => {
-      if (value === ServicePricingType.HOURLY) {
-        serviceOfferingControl.hourlyRate.setValidators([
-          Validators.min(0.01),
-          Validators.required,
-        ]);
-        serviceOfferingControl.hourlyRate.updateValueAndValidity();
-      } else {
-        serviceOfferingControl.hourlyRate.clearValidators();
-        serviceOfferingControl.hourlyRate.reset(null);
-      }
-    });
 
-    if (this.serviceOfferingId === null) {
-      return;
-    }
-
-    const currentUser = this.authSession.currentUser();
-
-    if (currentUser === null) {
-      this.loadError.set('Vous devez être connecté pour modifier cette offre.');
-      this.router.navigate(['/login']);
-      return;
-    }
-
-    this.isLoading.set(true);
-    this.loadError.set(null);
-    forkJoin({
-      serviceProvider: this.serviceProviderService.getById(this.serviceProviderId),
-      serviceOfferings: this.serviceOfferingStore.getAll(this.serviceProviderId),
-    })
-      .pipe(finalize(() => this.isLoading.set(false)))
-      .subscribe({
-        next: ({ serviceProvider, serviceOfferings }) => {
-          if (serviceProvider.ownerUserId !== currentUser.id) {
-            this.loadError.set('Vous ne pouvez pas modifier cette offre de service.');
-            this.router.navigate(['/service-providers', serviceProvider.id]);
-            return;
-          }
-
-          const offering = serviceOfferings.find(
-            (offering) => offering.id === this.serviceOfferingId,
-          );
-
-          if (offering === undefined) {
-            this.loadError.set('Cette offre de service est introuvable.');
-            return;
-          }
-
-          this.serviceOfferingForm.patchValue(offering);
-        },
-        error: () => {
-          this.loadError.set('Impossible de charger cette offre de service. Veuillez réessayer.');
-        },
+    serviceOfferingControl.pricingType.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((value) => {
+        if (value === ServicePricingType.HOURLY) {
+          serviceOfferingControl.hourlyRate.setValidators([
+            Validators.min(0.01),
+            Validators.required,
+          ]);
+          serviceOfferingControl.hourlyRate.updateValueAndValidity();
+        } else {
+          serviceOfferingControl.hourlyRate.clearValidators();
+          serviceOfferingControl.hourlyRate.reset(null);
+        }
       });
+
+    this.route.paramMap
+      .pipe(
+        map((params) => {
+          const offeringId = params.get('offeringId');
+
+          return {
+            serviceProviderId: Number(params.get('id')),
+            serviceOfferingId: offeringId === null ? null : Number(offeringId),
+          };
+        }),
+        distinctUntilChanged(
+          (previous, current) =>
+            previous.serviceProviderId === current.serviceProviderId &&
+            previous.serviceOfferingId === current.serviceOfferingId,
+        ),
+        switchMap(({ serviceOfferingId, serviceProviderId }) => {
+          this.offeringChange$.next();
+          this.serviceProviderId = serviceProviderId;
+          this.serviceOfferingId = serviceOfferingId;
+          this.isLoading.set(false);
+          this.loadError.set(null);
+          this.submitError.set(null);
+          this.serviceOfferingForm.reset({
+            title: '',
+            description: '',
+            pricingType: ServicePricingType.HOURLY,
+            hourlyRate: 0.01,
+          });
+
+          if (serviceOfferingId === null) {
+            return EMPTY;
+          }
+
+          const currentUser = this.authSession.currentUser();
+
+          if (currentUser === null) {
+            this.loadError.set('Vous devez être connecté pour modifier cette offre.');
+            this.router.navigate(['/login']);
+
+            return EMPTY;
+          }
+
+          this.isLoading.set(true);
+
+          return forkJoin({
+            serviceProvider: this.serviceProviderStore.getById(serviceProviderId),
+            serviceOfferings: this.serviceOfferingStore.getAll(serviceProviderId),
+          }).pipe(
+            tap(({ serviceProvider, serviceOfferings }) => {
+              if (serviceProvider.ownerUserId !== currentUser.id) {
+                this.loadError.set('Vous ne pouvez pas modifier cette offre de service.');
+                this.router.navigate(['/service-providers', serviceProvider.id]);
+                return;
+              }
+
+              const offering = serviceOfferings.find(
+                (offering) => offering.id === this.serviceOfferingId,
+              );
+
+              if (offering === undefined) {
+                this.loadError.set('Cette offre de service est introuvable.');
+                return;
+              }
+
+              this.serviceOfferingForm.patchValue(offering);
+            }),
+            catchError(() => {
+              this.loadError.set(
+                'Impossible de charger cette offre de service. Veuillez réessayer.',
+              );
+
+              return EMPTY;
+            }),
+            finalize(() => this.isLoading.set(false)),
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe();
   }
 
   private buildCreateServiceOffering(): CreateServiceOffering | null {
@@ -159,16 +215,22 @@ export class ServiceOfferingForm {
 
     this.isSubmitting.set(true);
     this.submitError.set(null);
-    request$.pipe(finalize(() => this.isSubmitting.set(false))).subscribe({
-      next: ({ serviceProviderId }) => {
-        this.router.navigate(['/service-providers', serviceProviderId]);
-      },
-      error: (error) => {
-        console.error('error in serviceOfferingForm', error);
-        this.submitError.set(
-          'Impossible d’enregistrer cette offre de service. Veuillez réessayer.',
-        );
-      },
-    });
+    request$
+      .pipe(
+        takeUntil(this.offeringChange$),
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.isSubmitting.set(false)),
+      )
+      .subscribe({
+        next: ({ serviceProviderId }) => {
+          this.router.navigate(['/service-providers', serviceProviderId]);
+        },
+        error: (error) => {
+          console.error('error in serviceOfferingForm', error);
+          this.submitError.set(
+            'Impossible d’enregistrer cette offre de service. Veuillez réessayer.',
+          );
+        },
+      });
   }
 }

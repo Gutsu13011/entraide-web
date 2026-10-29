@@ -4,10 +4,11 @@ import { PaginatedServiceProviders } from '../../models/paginated-service-provid
 import { ServiceProviderQuery } from '../../models/service-provider-query.model';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { API_ORIGIN } from '../../../api.config';
 
 @Service()
 export class ServiceProviderStore {
-  private readonly apiUrl = 'http://localhost:3000/service-providers';
+  private readonly apiUrl = `${API_ORIGIN}/service-providers`;
   private readonly http = inject(HttpClient);
 
   getAll(query: ServiceProviderQuery = {}): Observable<PaginatedServiceProviders> {

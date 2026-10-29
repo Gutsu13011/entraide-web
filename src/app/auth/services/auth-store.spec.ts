@@ -25,10 +25,6 @@ describe('AuthStore', () => {
     httpTesting.verify();
   });
 
-  it('should be created', () => {
-    expect(service).toBeTruthy();
-  });
-
   it('should send login credentials with cookies and return an access token', () => {
     const loginRequest: LoginRequest = {
       email: 'alicemartin@example.com',

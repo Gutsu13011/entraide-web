@@ -12,11 +12,12 @@ import {
   ServiceRequestMessage,
 } from '../../models/service-request-message.model';
 import { ServiceRequestUnreadMessageCounts } from '../../models/service-request-unread-message-counts.model';
+import { API_ORIGIN } from '../../../api.config';
 
 @Service()
 export class ServiceRequestStore {
   private readonly http = inject(HttpClient);
-  private readonly url = 'http://localhost:3000';
+  private readonly url = `${API_ORIGIN}/service-requests`;
 
   add(
     serviceProviderId: number,
@@ -24,33 +25,28 @@ export class ServiceRequestStore {
     createServiceRequest: CreateServiceRequest,
   ): Observable<ServiceRequest> {
     return this.http.post<ServiceRequest>(
-      `${this.url}/service-providers/${serviceProviderId}/service-offerings/${serviceOfferingId}/service-requests`,
+      `${API_ORIGIN}/service-providers/${serviceProviderId}/service-offerings/${serviceOfferingId}/service-requests`,
       createServiceRequest,
     );
   }
 
   getSent(): Observable<ServiceRequest[]> {
-    return this.http.get<ServiceRequest[]>(`${this.url}/service-requests/sent`);
+    return this.http.get<ServiceRequest[]>(`${this.url}/sent`);
   }
 
   getReceived(): Observable<ServiceRequest[]> {
-    return this.http.get<ServiceRequest[]>(`${this.url}/service-requests/received`);
+    return this.http.get<ServiceRequest[]>(`${this.url}/received`);
   }
 
   updateStatus(
     id: number,
     updateServiceRequestStatus: UpdateServiceRequestStatus,
   ): Observable<ServiceRequest> {
-    return this.http.patch<ServiceRequest>(
-      `${this.url}/service-requests/${id}/status`,
-      updateServiceRequestStatus,
-    );
+    return this.http.patch<ServiceRequest>(`${this.url}/${id}/status`, updateServiceRequestStatus);
   }
 
   getMessages(serviceRequestId: number): Observable<ServiceRequestMessage[]> {
-    return this.http.get<ServiceRequestMessage[]>(
-      `${this.url}/service-requests/${serviceRequestId}/messages`,
-    );
+    return this.http.get<ServiceRequestMessage[]>(`${this.url}/${serviceRequestId}/messages`);
   }
 
   sendMessage(
@@ -58,7 +54,7 @@ export class ServiceRequestStore {
     message: CreateServiceRequestMessage,
   ): Observable<ServiceRequestMessage> {
     return this.http.post<ServiceRequestMessage>(
-      `${this.url}/service-requests/${serviceRequestId}/messages`,
+      `${this.url}/${serviceRequestId}/messages`,
       message,
     );
   }
@@ -67,15 +63,10 @@ export class ServiceRequestStore {
     serviceRequestId: number,
     boundary: MarkServiceRequestMessagesRead,
   ): Observable<void> {
-    return this.http.patch<void>(
-      `${this.url}/service-requests/${serviceRequestId}/messages/read`,
-      boundary,
-    );
+    return this.http.patch<void>(`${this.url}/${serviceRequestId}/messages/read`, boundary);
   }
 
   getUnreadMessageCounts(): Observable<ServiceRequestUnreadMessageCounts> {
-    return this.http.get<ServiceRequestUnreadMessageCounts>(
-      `${this.url}/service-requests/messages/unread-counts`,
-    );
+    return this.http.get<ServiceRequestUnreadMessageCounts>(`${this.url}/messages/unread-counts`);
   }
 }

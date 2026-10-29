@@ -2,6 +2,7 @@ import { HttpInterceptorFn, HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { AuthSession } from '../services/auth-session';
 import { catchError, of, switchMap, throwError } from 'rxjs';
+import { API_ORIGIN } from '../../../api.config';
 
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const authSession = inject(AuthSession);
@@ -11,7 +12,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   try {
     const address = new URL(req.url);
 
-    if (address.origin !== 'http://localhost:3000') {
+    if (address.origin !== API_ORIGIN) {
       return next(req);
     }
 

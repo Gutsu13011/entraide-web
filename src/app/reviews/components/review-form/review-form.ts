@@ -1,8 +1,9 @@
-import { Component, inject, input, output, signal } from '@angular/core';
+import { Component, DestroyRef, inject, input, output, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ReviewStore } from '../../services/review-store';
 import { Review } from '../../../models/review.model';
 import { finalize } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
   imports: [ReactiveFormsModule],
@@ -12,6 +13,7 @@ import { finalize } from 'rxjs';
 })
 export class ReviewForm {
   private readonly reviewStore = inject(ReviewStore);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly serviceProviderId = input.required<number>();
   readonly serviceRequestId = input.required<number>();
@@ -49,7 +51,10 @@ export class ReviewForm {
         ...formValues,
         serviceRequestId: this.serviceRequestId(),
       })
-      .pipe(finalize(() => this.isSubmitting.set(false)))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.isSubmitting.set(false)),
+      )
       .subscribe({
         next: (review) => {
           this.reviewCreated.emit(review);

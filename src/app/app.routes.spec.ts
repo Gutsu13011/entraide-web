@@ -9,6 +9,7 @@ import { LoginForm } from './auth/components/login-form/login-form';
 import { ServiceRequestForm } from './service-requests/components/service-request-form/service-request-form';
 import { ServiceOffering, ServicePricingType } from './models/service-offering.model';
 import { ServiceProviderDetail } from './service-providers/components/service-provider-detail/service-provider-detail';
+import { ServiceProviderForm } from './service-providers/components/service-provider-form/service-provider-form';
 import { ServiceProvider } from './models/service-provider.model';
 import { CurrentUserResponse } from './models/auth.model';
 import { ServiceRequestList } from './service-requests/components/service-request-list/service-request-list';
@@ -48,6 +49,7 @@ describe('App routes', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     httpTesting.verify();
   });
 
@@ -62,6 +64,40 @@ describe('App routes', () => {
 
     expectLoginRedirect(destination);
     httpTesting.expectNone('http://localhost:3000/service-requests/sent');
+  });
+
+  it('should preserve the login form and follow the latest return URL after authentication', async () => {
+    const component = await harness.navigateByUrl(
+      '/login?returnUrl=%2Fservice-requests%2Fsent',
+      LoginForm,
+    );
+    component.loginForm.controls.email.setValue('alice@example.test');
+    const destination = '/service-requests/received?filter=pending&search=Alice%20Martin#latest';
+
+    const reused = await harness.navigateByUrl(
+      `/login?returnUrl=${encodeURIComponent(destination)}`,
+      LoginForm,
+    );
+
+    expect(reused).toBe(component);
+    expect(component.loginForm.controls.email.value).toBe('alice@example.test');
+    httpTesting.expectNone('http://localhost:3000/service-requests/sent');
+    httpTesting.expectNone('http://localhost:3000/service-requests/received');
+    const navigateSpy = vi.spyOn(router, 'navigateByUrl');
+    authSessionStub.isAuthenticated.set(true);
+    harness.detectChanges();
+    await vi.waitFor(() => expect(navigateSpy).toHaveBeenCalledTimes(1));
+    await navigateSpy.mock.results[0].value;
+    harness.detectChanges();
+
+    const [target, options] = navigateSpy.mock.calls[0];
+    expect(typeof target === 'string' ? target : router.serializeUrl(target)).toBe(destination);
+    expect(options).toEqual({ replaceUrl: true });
+    expect(router.url).toBe(destination);
+    httpTesting.expectNone('http://localhost:3000/service-requests/sent');
+    const pending = httpTesting.expectOne('http://localhost:3000/service-requests/received');
+    expect(pending.request.method).toBe('GET');
+    pending.flush([]);
   });
 
   it('should redirect unauthenticated users from service request creation to login', async () => {
@@ -101,6 +137,67 @@ describe('App routes', () => {
     expect(component.isLoading()).toBe(false);
   });
 
+  it('should reuse request creation across route ids and cancel the previous HTTP submission', async () => {
+    authSessionStub.isAuthenticated.set(true);
+    const component = await harness.navigateByUrl(
+      '/service-providers/7/service-offerings/12/service-requests/new',
+      ServiceRequestForm,
+    );
+    const initial: ServiceOffering = {
+      id: 12,
+      serviceProviderId: 7,
+      title: 'Peinture',
+      description: 'Peinture intérieure.',
+      pricingType: ServicePricingType.HOURLY,
+      hourlyRate: 35,
+    };
+    httpTesting
+      .expectOne('http://localhost:3000/service-providers/7/service-offerings')
+      .flush([initial]);
+    component.serviceRequestForm.controls.message.setValue('Premier message');
+    component.onSubmit();
+    const oldSubmission = httpTesting.expectOne(
+      'http://localhost:3000/service-providers/7/service-offerings/12/service-requests',
+    );
+    expect(oldSubmission.request.method).toBe('POST');
+    expect(oldSubmission.cancelled).toBe(false);
+
+    const reused = await harness.navigateByUrl(
+      '/service-providers/8/service-offerings/13/service-requests/new',
+      ServiceRequestForm,
+    );
+
+    expect(reused).toBe(component);
+    expect(oldSubmission.cancelled).toBe(true);
+    expect(component.serviceProviderId).toBe(8);
+    expect(component.serviceOfferingId).toBe(13);
+    expect(component.isSubmitting()).toBe(false);
+    expect(component.isLoading()).toBe(true);
+    expect(component.serviceOffering()).toBeNull();
+    expect(component.serviceRequestForm.controls.message.value).toBe('');
+    expect(harness.routeNativeElement?.querySelector('h3')).toBeNull();
+    expect(harness.routeNativeElement?.textContent).not.toContain('35 € / heure');
+    const next: ServiceOffering = {
+      ...initial,
+      id: 13,
+      serviceProviderId: 8,
+      title: 'Conseil gratuit',
+      pricingType: ServicePricingType.FREE,
+      hourlyRate: null,
+    };
+    httpTesting
+      .expectOne('http://localhost:3000/service-providers/8/service-offerings')
+      .flush([next]);
+    harness.detectChanges();
+    expect(component.serviceOffering()).toEqual(next);
+    expect(harness.routeNativeElement?.textContent).toContain('Conseil gratuit');
+    expect(harness.routeNativeElement?.textContent).toContain('Prestation gratuite');
+    expect(harness.routeNativeElement?.querySelector('a')?.getAttribute('href')).toBe(
+      '/service-providers/8',
+    );
+    expect(router.url).toBe('/service-providers/8/service-offerings/13/service-requests/new');
+  });
+
   it('should redirect unauthenticated users from provider creation to login', async () => {
     await harness.navigateByUrl('/service-providers/new', LoginForm);
     expectLoginRedirect('/service-providers/new');
@@ -109,6 +206,50 @@ describe('App routes', () => {
   it('should redirect unauthenticated users from provider editing to login', async () => {
     await harness.navigateByUrl('/service-providers/7/edit', LoginForm);
     expectLoginRedirect('/service-providers/7/edit');
+  });
+
+  it('should open the provider edit form through the real route and prefill the owned profile', async () => {
+    const user: CurrentUserResponse = {
+      id: 42,
+      firstName: 'Alice',
+      lastName: 'Martin',
+      email: 'alice@example.test',
+    };
+    const provider: ServiceProvider = {
+      id: 7,
+      ownerUserId: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      profession: 'Peintre',
+      city: 'Paris',
+      description: 'Travaux de peinture intérieure et rénovation.',
+      hourlyRate: 35,
+      available: true,
+      imageUrl: '',
+    };
+    authSessionStub.isAuthenticated.set(true);
+    authSessionStub.currentUser.set(user);
+
+    const component = await harness.navigateByUrl('/service-providers/7/edit', ServiceProviderForm);
+
+    expect(component.isEditMode).toBe(true);
+    expect(component.serviceProviderId).toBe(7);
+    expect(component.isLoading()).toBe(true);
+    const pending = httpTesting.expectOne('http://localhost:3000/service-providers/7');
+    expect(pending.request.method).toBe('GET');
+    pending.flush(provider);
+    harness.detectChanges();
+
+    expect(component.isLoading()).toBe(false);
+    expect(component.serviceProviderForm.controls.profession.value).toBe('Peintre');
+    expect(component.serviceProviderForm.controls.city.value).toBe('Paris');
+    expect(harness.routeNativeElement?.querySelector('h2')?.textContent?.trim()).toBe(
+      'Modifier ma fiche',
+    );
+    expect(harness.routeNativeElement?.querySelector<HTMLInputElement>('#profession')?.value).toBe(
+      'Peintre',
+    );
+    httpTesting.expectNone('http://localhost:3000/service-providers/7/service-offerings');
   });
 
   it('should redirect unauthenticated users from offering editing to login', async () => {

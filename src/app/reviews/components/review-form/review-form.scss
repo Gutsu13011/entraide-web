@@ -1,3 +1,5 @@
+@use '../../../../styles/forms' as forms;
+
 :host {
   display: block;
   min-width: 0;
@@ -14,13 +16,7 @@
 }
 
 form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: clamp(1rem, 4vw, 1.5rem);
-  border: 1px solid var(--color-border);
-  border-radius: 0.75rem;
-  background-color: var(--color-surface);
+  @include forms.panel($padding: clamp(1rem, 4vw, 1.5rem), $radius: 0.75rem);
 }
 
 label {
@@ -34,13 +30,7 @@ label:first-child {
 
 select,
 textarea {
-  width: 100%;
-  min-width: 0;
-  padding: 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
-  background-color: var(--color-surface);
-  color: var(--color-text);
+  @include forms.control;
 }
 
 select {
@@ -89,8 +79,5 @@ button {
 }
 
 button:disabled {
-  border-color: var(--color-border);
-  background-color: var(--color-border);
-  color: var(--color-muted);
-  cursor: wait;
+  @include forms.disabled-button($cursor: wait);
 }

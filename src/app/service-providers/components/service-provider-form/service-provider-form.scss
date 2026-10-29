@@ -1,3 +1,5 @@
+@use '../../../../styles/forms' as forms;
+
 :host {
   display: block;
   max-width: 40rem;
@@ -5,13 +7,7 @@
 }
 
 form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: clamp(1.25rem, 4vw, 2rem);
-  border: 1px solid var(--color-border);
-  border-radius: 1rem;
-  background-color: var(--color-surface);
+  @include forms.panel;
 }
 
 label {
@@ -25,13 +21,7 @@ label:first-child {
 
 input:not([type='checkbox']),
 textarea {
-  width: 100%;
-  min-width: 0;
-  padding: 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
-  background-color: var(--color-surface);
-  color: var(--color-text);
+  @include forms.control;
 }
 
 textarea {
@@ -47,21 +37,7 @@ input[type='checkbox'] {
 }
 
 button {
-  margin-top: 1.5rem;
-  padding: 0.875rem 1rem;
-  border: 1px solid var(--color-primary);
-  border-radius: 0.5rem;
-  background-color: var(--color-primary);
-  color: #ffffff;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-button:disabled {
-  border-color: var(--color-border);
-  background-color: var(--color-border);
-  color: var(--color-muted);
-  cursor: not-allowed;
+  @include forms.submit-button;
 }
 
 a {
