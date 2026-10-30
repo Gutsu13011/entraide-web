@@ -1,4 +1,4 @@
-import { Component, signal, inject, OnInit } from '@angular/core';
+import { Component, signal, inject, OnInit, DestroyRef } from '@angular/core';
 import {
   ServiceRequest,
   ServiceRequestStatus,
@@ -11,6 +11,7 @@ import { DatePipe } from '@angular/common';
 import { ServicePricingType } from '../../../models/service-offering.model';
 import { ReviewForm } from '../../../reviews/components/review-form/review-form';
 import { ServiceRequestConversation } from '../service-request-conversation/service-request-conversation';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
   imports: [DatePipe, ReviewForm, ServiceRequestConversation],
@@ -21,6 +22,7 @@ import { ServiceRequestConversation } from '../service-request-conversation/serv
 export class ServiceRequestList implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly serviceRequestsStore = inject(ServiceRequestStore);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly serviceRequests = signal<ServiceRequest[]>([]);
   readonly isLoading = signal<boolean>(false);
@@ -41,14 +43,19 @@ export class ServiceRequestList implements OnInit {
       ? this.serviceRequestsStore.getSent()
       : this.serviceRequestsStore.getReceived();
 
-    request$.pipe(finalize(() => this.isLoading.set(false))).subscribe({
-      next: (serviceRequests) => {
-        this.serviceRequests.set(serviceRequests);
-      },
-      error: () => {
-        this.loadError.set('Impossible de charger vos demandes. Veuillez réessayer.');
-      },
-    });
+    request$
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.isLoading.set(false)),
+      )
+      .subscribe({
+        next: (serviceRequests) => {
+          this.serviceRequests.set(serviceRequests);
+        },
+        error: () => {
+          this.loadError.set('Impossible de charger vos demandes. Veuillez réessayer.');
+        },
+      });
   }
 
   onToggleConversation(serviceRequestId: number): void {
@@ -108,7 +115,10 @@ export class ServiceRequestList implements OnInit {
     this.statusUpdateError.set(null);
     this.serviceRequestsStore
       .updateStatus(serviceRequest.id, { status })
-      .pipe(finalize(() => this.updatingRequestId.set(null)))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.updatingRequestId.set(null)),
+      )
       .subscribe({
         next: (updatedRequest) => {
           this.serviceRequests.update((serviceRequests) =>

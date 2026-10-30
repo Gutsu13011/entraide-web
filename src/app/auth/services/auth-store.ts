@@ -7,10 +7,11 @@ import type {
   RegisterRequest,
 } from '../../models/auth.model';
 import { Observable } from 'rxjs';
+import { API_ORIGIN } from '../../../api.config';
 
 @Service()
 export class AuthStore {
-  private readonly url = 'http://localhost:3000/auth';
+  private readonly url = `${API_ORIGIN}/auth`;
   private readonly http = inject(HttpClient);
 
   login(loginRequest: LoginRequest): Observable<LoginResponse> {

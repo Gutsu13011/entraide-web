@@ -33,10 +33,6 @@ describe('AuthSession', () => {
     service = TestBed.inject(AuthSession);
   });
 
-  it('should be created', () => {
-    expect(service).toBeTruthy();
-  });
-
   it('should start without an authenticated session', () => {
     expect(service.accessToken()).toBe(null);
     expect(service.currentUser()).toBe(null);

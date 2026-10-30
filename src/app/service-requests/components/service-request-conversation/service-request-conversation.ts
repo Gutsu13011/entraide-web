@@ -18,6 +18,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AuthSession } from '../../../auth/services/auth-session';
 import { unreadMessageState } from '../../services/unread-message-store';
 import { ServiceRequestRealtime } from '../../services/service-request-realtime';
+import { MESSAGE_SYNC_FALLBACK_INTERVAL_MS } from '../../message-sync.config';
 
 @Component({
   imports: [DatePipe, ReactiveFormsModule],
@@ -61,7 +62,7 @@ export class ServiceRequestConversation implements OnInit {
     );
 
     merge(
-      interval(10_000),
+      interval(MESSAGE_SYNC_FALLBACK_INTERVAL_MS),
       fromEvent(this.document, 'visibilitychange'),
       conversationChanges,
       this.serviceRequestRealtime.connected$,
@@ -96,10 +97,6 @@ export class ServiceRequestConversation implements OnInit {
   }
 
   private loadMessages(isInitialLoad: boolean): void {
-    if (this.isLoading() || this.isRefreshing() || this.isSending()) {
-      return;
-    }
-
     if (isInitialLoad) {
       this.isLoading.set(true);
       this.loadError.set(null);

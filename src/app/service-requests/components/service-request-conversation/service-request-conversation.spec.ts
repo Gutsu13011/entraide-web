@@ -704,7 +704,7 @@ describe('ServiceRequestConversation', () => {
     function nextRefresh() {
       const response = new Subject<ServiceRequestMessage[]>();
       storeStub.getMessages.mockReturnValue(response);
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(60_000);
       return response;
     }
 
@@ -1106,7 +1106,7 @@ describe('ServiceRequestConversation', () => {
       refresh.complete();
     });
 
-    it('should refresh after 10 seconds while keeping the same focused reply field and draft', () => {
+    it('should refresh after 60 seconds while keeping the same focused reply field and draft', () => {
       loadInitial();
       const textarea = element().querySelector<HTMLTextAreaElement>('textarea')!;
       textarea.value = 'Mon brouillon en cours';
@@ -1118,7 +1118,7 @@ describe('ServiceRequestConversation', () => {
       const initialArticle = element().querySelector('.conversation-message');
       const refresh$ = new Subject<ServiceRequestMessage[]>();
       storeStub.getMessages.mockReturnValue(refresh$);
-      vi.advanceTimersByTime(9_999);
+      vi.advanceTimersByTime(59_999);
       expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
 
       vi.advanceTimersByTime(1);
@@ -1154,7 +1154,7 @@ describe('ServiceRequestConversation', () => {
 
     it('should wait for a slow initial load and process one queued polling refresh immediately afterwards', () => {
       fixture.detectChanges();
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(180_000);
       expect(storeStub.getMessages).toHaveBeenCalledOnce();
       expect(component.isLoading()).toBe(true);
       storeStub.getMessages.mockReturnValue(of([firstMessage]));
@@ -1163,7 +1163,7 @@ describe('ServiceRequestConversation', () => {
       fixture.detectChanges();
       expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
       expect(component.isLoading()).toBe(false);
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(60_000);
       fixture.detectChanges();
       expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
     });
@@ -1175,15 +1175,15 @@ describe('ServiceRequestConversation', () => {
       storeStub.getMessages
         .mockReturnValueOnce(refresh.pipe(finalize(teardown)))
         .mockReturnValue(of([firstMessage]));
-      vi.advanceTimersByTime(10_000);
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(60_000);
+      vi.advanceTimersByTime(180_000);
       expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
       expect(teardown).not.toHaveBeenCalled();
       refresh.next([firstMessage]);
       refresh.complete();
       expect(teardown).toHaveBeenCalledOnce();
       expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(60_000);
       fixture.detectChanges();
       expect(storeStub.getMessages).toHaveBeenCalledTimes(4);
     });
@@ -1192,7 +1192,7 @@ describe('ServiceRequestConversation', () => {
       loadInitial();
       visibility = 'hidden';
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
-      vi.advanceTimersByTime(35_000);
+      vi.advanceTimersByTime(210_000);
       expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
       const refresh$ = new Subject<ServiceRequestMessage[]>();
       storeStub.getMessages.mockReturnValue(refresh$);
@@ -1206,7 +1206,7 @@ describe('ServiceRequestConversation', () => {
       refresh$.complete();
       fixture.detectChanges();
       storeStub.getMessages.mockReturnValue(of([firstMessage]));
-      vi.advanceTimersByTime(4_999);
+      vi.advanceTimersByTime(29_999);
       expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
       vi.advanceTimersByTime(1);
       fixture.detectChanges();
@@ -1257,7 +1257,7 @@ describe('ServiceRequestConversation', () => {
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
       visibility = 'visible';
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
-      vi.advanceTimersByTime(20_000);
+      vi.advanceTimersByTime(120_000);
       fixture.detectChanges();
 
       expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
@@ -1285,7 +1285,7 @@ describe('ServiceRequestConversation', () => {
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
       visibility = 'visible';
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(60_000);
       expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
 
       storeStub.getMessages.mockReturnValue(of([firstMessage, saved]));
@@ -1354,7 +1354,7 @@ describe('ServiceRequestConversation', () => {
       document.dispatchEvent(new Event('visibilitychange'));
       visibility = 'visible';
       document.dispatchEvent(new Event('visibilitychange'));
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(180_000);
       expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
     });
 
@@ -1366,7 +1366,7 @@ describe('ServiceRequestConversation', () => {
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
       visibility = 'visible';
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(180_000);
 
       expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
     });
@@ -1380,7 +1380,7 @@ describe('ServiceRequestConversation', () => {
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
       visibility = 'visible';
       TestBed.inject(DOCUMENT).dispatchEvent(new Event('visibilitychange'));
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(180_000);
 
       expect(storeStub.getMessages).toHaveBeenCalledTimes(1);
       expect(component.loadError()).toBe(
@@ -1470,7 +1470,7 @@ describe('ServiceRequestConversation', () => {
       expect(unreadStoreStub.refresh).not.toHaveBeenCalled();
       visibility = 'visible';
       storeStub.getMessages.mockReturnValue(of([firstMessage, otherMessage]));
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(60_000);
       fixture.detectChanges();
       expect(storeStub.markMessagesAsRead).toHaveBeenCalledExactlyOnceWith(42, {
         upToMessageId: 102,
@@ -1486,7 +1486,7 @@ describe('ServiceRequestConversation', () => {
         const refresh$ = new Subject<ServiceRequestMessage[]>();
         const teardown = vi.fn();
         storeStub.getMessages.mockReturnValue(refresh$.pipe(finalize(teardown)));
-        vi.advanceTimersByTime(10_000);
+        vi.advanceTimersByTime(60_000);
         expect(component.isRefreshing()).toBe(true);
 
         fixture.destroy();
@@ -1496,7 +1496,7 @@ describe('ServiceRequestConversation', () => {
         } else {
           refresh$.error(new HttpErrorResponse({ status: 500 }));
         }
-        vi.advanceTimersByTime(30_000);
+        vi.advanceTimersByTime(180_000);
 
         expect(teardown).toHaveBeenCalledTimes(1);
         expect(component.isRefreshing()).toBe(false);
@@ -1519,7 +1519,7 @@ describe('ServiceRequestConversation', () => {
           .mockReturnValueOnce(refresh$.pipe(finalize(teardown)))
           .mockReturnValueOnce(followUp)
           .mockReturnValue(of([]));
-        vi.advanceTimersByTime(10_000);
+        vi.advanceTimersByTime(60_000);
         const send$ = new Subject<ServiceRequestMessage>();
         storeStub.sendMessage.mockReturnValue(send$);
         const saved = { ...firstMessage, id: 103, content: 'Ma nouvelle réponse' };
@@ -1533,7 +1533,7 @@ describe('ServiceRequestConversation', () => {
         expect(storeStub.sendMessage).toHaveBeenCalledExactlyOnceWith(42, {
           content: saved.content,
         });
-        vi.advanceTimersByTime(20_000);
+        vi.advanceTimersByTime(120_000);
         expect(storeStub.getMessages).toHaveBeenCalledTimes(2);
         send$.next(saved);
         send$.complete();
@@ -1551,7 +1551,7 @@ describe('ServiceRequestConversation', () => {
         followUp.next([firstMessage, saved]);
         followUp.complete();
         storeStub.getMessages.mockReturnValue(of([firstMessage, saved]));
-        vi.advanceTimersByTime(10_000);
+        vi.advanceTimersByTime(60_000);
         fixture.detectChanges();
         expect(storeStub.getMessages).toHaveBeenCalledTimes(4);
         expect(component.messages()).toEqual([firstMessage, saved]);
@@ -1563,7 +1563,7 @@ describe('ServiceRequestConversation', () => {
       const refresh$ = new Subject<ServiceRequestMessage[]>();
       const teardown = vi.fn();
       storeStub.getMessages.mockReturnValue(refresh$.pipe(finalize(teardown)));
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(60_000);
       component.messageForm.controls.content.setValue('   ');
 
       component.onSendMessage();
@@ -1593,7 +1593,7 @@ describe('ServiceRequestConversation', () => {
       expect(component.messageForm.controls.content.value).toBe('Brouillon à réessayer');
       expect(component.sendError()).not.toBeNull();
       storeStub.getMessages.mockReturnValue(of([firstMessage]));
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(60_000);
       fixture.detectChanges();
       expect(storeStub.getMessages).toHaveBeenCalledTimes(3);
       expect(component.messageForm.controls.content.value).toBe('Brouillon à réessayer');

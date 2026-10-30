@@ -40,10 +40,6 @@ describe('LoginForm', () => {
     await fixture.whenStable();
   });
 
-  it('should create', () => {
-    expect(component).toBeTruthy();
-  });
-
   it('should not attempt login when the form is invalid', () => {
     component.onSubmit();
     expect(authSessionStub.login).not.toHaveBeenCalled();
@@ -165,6 +161,34 @@ describe('LoginForm', () => {
       replaceUrl: true,
     });
   });
+
+  it.each([
+    { label: 'removed', destination: null },
+    { label: 'replaced with an external URL', destination: 'https://example.test/untrusted' },
+  ])(
+    'should fall back to home when the destination is $label on the existing form',
+    async ({ destination }) => {
+      await openLoginWithDestination('/service-requests/sent');
+      const originalForm = component.loginForm;
+      originalForm.controls.email.setValue('alice@example.test');
+
+      routeStub.snapshot.queryParamMap = convertToParamMap(
+        destination === null ? {} : { returnUrl: destination },
+      );
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(component.loginForm).toBe(originalForm);
+      expect(originalForm.controls.email.value).toBe('alice@example.test');
+      expect(router.navigateByUrl).not.toHaveBeenCalled();
+      authSessionStub.isAuthenticated.set(true);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(router.navigateByUrl).toHaveBeenCalledExactlyOnceWith(router.parseUrl('/'), {
+        replaceUrl: true,
+      });
+    },
+  );
 
   it('should remain on login after failure and retain the requested destination for a successful retry', async () => {
     const destination = '/service-requests/sent?filter=pending#latest';

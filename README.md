@@ -55,8 +55,34 @@ service.
 ## Project status
 
 The application is under active development.
+
+The provider list remains directly imported as the home screen. All secondary
+screens use `loadComponent` with dynamic imports: provider detail and form,
+offering form, request form and list, login and registration. Route order,
+authentication guards and sent/received route data are preserved. Creation
+and editing routes load the appropriate shared form component.
+
+For this routing refactor, the production build initial raw size decreased
+from 468.96 to 402.61 kB, and estimated initial transfer decreased from 115.12
+to 107.93 kB. Secondary screen code is fetched on navigation. Transfer figures
+are build-tool estimates. Router integration tests cover redirects, request
+navigation and the actual provider edit route, including its profile load
+and edit-form display.
+
 A first responsive interface is implemented, with further visual and
 accessibility improvements planned.
+
+Shared form SCSS lives in `src/styles/_forms.scss` as the `panel`, `control`,
+`submit-button` and `disabled-button` mixins. Login, registration, provider and
+offering forms use the shared panel, controls and submit button; the request
+form shares its panel and submit button while retaining its own textarea rules.
+The review form supplies its existing padding and radius to the panel mixin and
+shares the control styles. Review and conversation buttons use the disabled
+mixin with a `wait` cursor; regular submit buttons retain `not-allowed`.
+Mixins are included in each component's local selectors, preserving Angular
+style encapsulation and the existing responsive values. Action-button geometry,
+danger states and conversation-specific layout remain local. This removes
+repeated SCSS source without implying smaller generated CSS.
 
 Account registration, login and logout are implemented.
 Access tokens and profile data are held in memory. After a page reload, the
@@ -96,12 +122,27 @@ Open http://localhost:4200 in your browser.
 The frontend currently connects to the API at:
 http://localhost:3000
 
+The shared `API_ORIGIN` constant in `src/api.config.ts` defines this origin
+for all HTTP services, Socket.IO and the authentication interceptor. Its value
+contains only the scheme, host and port, without a path or trailing slash.
+Services append their resource paths; request creation uses the nested
+provider/offering route, while other request operations use `/service-requests`.
+Endpoint tests retain explicit expected URLs to detect accidental route changes.
+
 A fresh backend database contains no service providers.
 To explore the application with 12 fictional profiles, follow the
 "Demo data" section in the `entraide-api` README.
 
 The demo dataset provides two pages of results with the default page size,
 so you can try pagination, search, filters and sorting immediately.
+
+The provider list routes page and filter loads through one component-scoped
+`rxMethod<number>`. Each call reaches `switchMap`, which unsubscribes from
+the previous pending request before starting the next one. Only the latest
+request can update the results and pagination. Loading starts inside
+`switchMap`, after the previous request finalizes, and an inner error handler
+keeps later requests available after failure. Filters remain explicitly
+submitted; this does not add automatic searching while typing.
 
 The demo dataset also includes 14 service offerings: 12 hourly and 2 free.
 Open Sophie Martin or Hugo Petit to see both pricing types on one profile.
@@ -111,6 +152,19 @@ After logging in, you can create your own provider profile, edit it through
 Use "Modifier cette offre" on an offering to edit its title, description or pricing.
 Saving an edit returns to the updated detail page. Cancelling an edit returns
 to the detail page without saving changes.
+
+Leaving the provider form cancels its pending profile-loading and saving
+subscriptions. Late responses cannot prefill the abandoned form or trigger
+an ownership or save redirect. Cancellation does not roll back a save
+already processed by the API.
+
+Navigating between provider edit IDs reloads the form in the same component.
+The previous draft, touched/dirty state and errors are reset. The previous load
+and any pending save subscription are cancelled, preventing stale prefilling,
+ownership redirects and save redirects. Each loaded profile is checked for
+ownership, and subsequent saves use the current route ID. Changes to other route
+parameters preserve the draft when the provider ID stays the same. A failed
+load does not prevent loading another profile later.
 
 "Supprimer ma fiche" asks for confirmation before permanently deleting the
 profile and its related offerings and reviews. Cancelling leaves the profile
@@ -125,6 +179,20 @@ retry. Removing the last offering displays the empty state.
 Demo profiles have no account owner, so their management links, delete
 buttons and service request links are hidden.
 
+Leaving the provider list cancels pending page loads. Leaving a provider detail
+cancels its profile, reviews, summary and offering loads, as well as pending
+profile or offering deletion subscriptions. Late responses cannot update the
+abandoned page or redirect the user. Server-side deletions already completed
+remain effective.
+
+Navigating directly between provider IDs reuses the detail component and reloads
+its profile, reviews, summary and offerings. Previous data and errors are cleared;
+changing other route parameters without changing the provider ID does not reload.
+Each loader cancels its previous request and remains usable after an error.
+Pending deletion subscriptions are also cancelled on a provider change, so their
+late responses cannot redirect or modify the next profile. This does not roll
+back a deletion already processed by the API.
+
 ## Authentication
 
 Apply the backend database migrations before testing authentication and
@@ -134,6 +202,9 @@ Click "Créer un compte" to register with your first name, last name,
 email and a password of at least 15 characters.
 
 After registration, the application opens the login page.
+Leaving the registration form cancels its pending HTTP subscription, so a late
+response cannot redirect the user or update the abandoned form. This does not
+roll back an account creation already processed by the API.
 Successful login retrieves the user profile and opens the provider list.
 The header displays the user's name, links to sent and received requests,
 and a logout button. Clicking "Se déconnecter" clears the frontend session
@@ -189,10 +260,12 @@ Creating or editing a service provider or service offering, sending a service
 request, and viewing sent or received request lists require login.
 Unauthenticated visitors opening these pages are redirected to login. The guard
 preserves the complete requested URL, including query parameters and fragment,
-in the login URL's `returnUrl` query parameter. The login form reads this value
-when it is created and, after successful authentication, navigates to the parsed
-internal destination with `replaceUrl: true`. Query parameters and fragments are
-preserved. Missing or empty values, external or relative URLs, paths containing
+in the login URL's `returnUrl` query parameter. After successful authentication,
+the login form reads the current route snapshot and navigates to the parsed
+internal destination with `replaceUrl: true`. Changing `returnUrl` on the same
+login component preserves entered credentials and uses the latest destination;
+a removed or unsafe destination falls back to home. Query parameters and
+fragments are preserved. Missing or empty values, external or relative URLs, paths containing
 backslashes, and paths whose first primary segment is `login` or `register` fall
 back to `/`. Angular's URL parser also falls back to `/` for malformed encoding.
 This validation does not check whether every supplied internal route exists.
@@ -264,14 +337,35 @@ Editing uses `/service-providers/:id/edit` in the frontend and sends a PATCH
 request to `/service-providers/:id` in the API. The form does not send the
 profile ID or owner ID in the request body.
 
+`ServiceOfferingStore.getById(providerId, offeringId)` calls the public
+`GET /service-providers/:providerId/service-offerings/:offeringId` endpoint
+and returns a single offering. HTTP errors, including 404 and 500 responses,
+are propagated to the caller.
+
 Offering editing uses
 `/service-providers/:id/service-offerings/:offeringId/edit` in the frontend
 and sends a PATCH request to
 `/service-providers/:id/service-offerings/:offeringId` in the API.
-The form loads the provider and its offerings, checks ownership, and prefills
-the selected offering. Loading failures and missing offerings display an error
-and prevent submission. Saving waits for the API response before returning
+The form loads the provider and the selected offering through separate single-resource
+GET requests, checks ownership, and prefills the offering without downloading
+the provider's offering list. A 404 displays the missing-offering message; other
+loading failures display the retry message. These errors
+prevent submission. Saving waits for the API response before returning
 to the provider detail page; failed saves preserve the form and allow retry.
+
+Leaving the offering form stops its pricing-type listener and unsubscribes
+from both pending edit-loading requests and any pending save. Late responses
+cannot prefill the abandoned form or redirect the user. Already processed
+server writes are not rolled back.
+
+The offering form watches both provider and offering IDs. Changing either ID
+resets the previous draft, validation display state and errors, cancels pending
+loads and saves, and loads the new edit context with an ownership check. Creation
+for another provider resets the form without loading an existing offering.
+Changes to other route parameters preserve the draft when both IDs are unchanged.
+The pricing listener is registered before observing the route, so even immediate
+edit responses apply the correct free/hourly validators. Each new context starts
+with hourly pricing and an initial rate of 0.01 before any edit data is applied.
 
 Switching from hourly to free pricing clears the hourly rate. Switching from
 free to hourly pricing requires a new rate of at least 0.01. The API validates
@@ -296,8 +390,11 @@ Profiles without an account owner cannot receive requests and have no request li
 
 The protected frontend route is
 `/service-providers/:id/service-offerings/:offeringId/service-requests/new`.
-It loads the provider's offerings and displays the selected offering's title,
-description and pricing. Missing offerings and loading errors hide the form.
+It loads the selected offering directly through `ServiceOfferingStore.getById`,
+using both route identifiers, and displays its title, description and pricing.
+It does not download the provider's offering list. A 404 displays the
+missing-offering message; other loading failures display the retry message.
+Both hide the form and prevent submission.
 The return link navigates to the provider detail page without reloading the app.
 
 The message must contain at least one non-whitespace character. Validation
@@ -313,6 +410,19 @@ The submit button shows progress and prevents duplicate requests while an
 operation is pending. Success returns to the provider detail page; failure
 keeps the message and allows retry. The return link remains available during
 loading and after errors.
+
+Leaving the request form unsubscribes from its pending offering load or request
+submission. Late responses cannot select an offering in the abandoned form
+or redirect the user. A request already created by the API remains created.
+
+Changing the provider or offering ID in the request form cancels the previous
+load and submission subscriptions, clears the previous offering, message and
+errors, and loads the newly selected offering. Old responses cannot replace the
+new offering or redirect a newer submission. The form and return link use the
+current IDs. Changes to other route parameters preserve the draft when both IDs
+stay the same. Failed loads and unavailable offerings do not stop later route
+changes from loading another offering. Cancelling a subscription does not undo
+a request already created by the API.
 
 The "Demandes envoyées" and "Demandes reçues" links appear in the header
 while signed in. They open the protected `/service-requests/sent` and
@@ -332,6 +442,9 @@ order returned by the API.
 Loading, successful empty responses and loading failures have separate views.
 Switching between the two pages loads the selected list. Manual logout removes
 the account links and opens login, leaving the private list page.
+Leaving the list cancels pending list-loading and status-update subscriptions;
+late responses cannot update the abandoned list or its error state. A status
+change already processed by the API remains effective.
 
 ### Recipient status actions
 
@@ -398,7 +511,7 @@ undo a message the API may already have saved. Closing also discards the local
 draft.
 
 History loads immediately on opening. While the discussion remains open,
-it refreshes every 10 seconds if the document is visible, the account is signed
+its fallback refresh runs every 60 seconds if the document is visible, the account is signed
 in and the initial load succeeded. Triggers arriving during an existing history
 load or reply submission are coalesced into one pending refresh. Background
 refreshes preserve the reply field, focus and draft;
@@ -417,7 +530,7 @@ while an in-flight history load can still finish.
 Returning to the page triggers an immediate history refresh through
 `visibilitychange`, provided the account is signed in, the initial load
 succeeded. If a history load or reply submission is pending, the refresh waits
-for that operation to finish. The existing 10-second timer keeps its schedule. Matching `conversation.changed` Socket.IO
+for that operation to finish. The existing 60-second fallback timer keeps its schedule. Matching `conversation.changed` Socket.IO
 events also trigger history refreshes through the same subscription and guards.
 Events for other request ids are ignored. All three trigger sources are cleaned
 up when the discussion closes. A background loading error allows retrying on a
@@ -425,7 +538,12 @@ later return, polling tick or matching notification.
 
 The read PATCH returns no content and does not replace locally loaded read
 dates; the next history refresh or reopening fetches the latest server values.
-Conversation history and header counters use separate polling intervals.
+Conversation history and header counters share the 60-second fallback interval
+configured by `MESSAGE_SYNC_FALLBACK_INTERVAL_MS` in
+`src/app/service-requests/message-sync.config.ts`, with independent timers.
+Socket.IO and visibility events still trigger immediate eligible refreshes.
+If a background HTTP refresh fails without a later event, the next periodic
+fallback retries; its nominal wait is up to one minute on a visible idle page.
 Socket.IO notifications now trigger matching history refreshes and header-count
 refreshes. Polling remains a fallback for missed notifications.
 
@@ -448,8 +566,14 @@ or discard its draft. Counts are unknown until loaded or after a loading
 failure, so no badges appear in those states; a refresh retains the previous
 counts while it is pending.
 
-While signed in, App also refreshes counts every 30 seconds when the document
-is visible. Ticks are skipped while the document is hidden or a count request
+`UnreadMessageSync` coordinates the count reset, initial load, fallback timer
+and visibility listener. It is explicitly provided by `App` and instantiated in
+its constructor before `ServiceRequestRealtimeSession`, so its effect and cleanup
+follow the component lifetime. App retains the menu-closing effect and displays
+the shared store's badges; realtime notifications still refresh that same store.
+
+While signed in, the synchronization service refreshes counts every 60 seconds
+when the document is visible. Ticks are skipped while the document is hidden or a count request
 is still pending, allowing slow responses to finish. Manual
 refreshes after reading keep the same polling schedule. A server error allows
 another attempt at the next tick. A 401 triggers token renewal and one retry;
@@ -472,10 +596,14 @@ open conversations. Browser scheduling can delay polling ticks.
 ## Real-time conversation notifications
 
 `ServiceRequestRealtime` owns one shared Socket.IO client for the API namespace
-`http://localhost:3000/service-request-messages`. `App` opens it only when both
-the current profile and access token are present, subscribes to notifications
-before connecting, and cleans up the subscription and socket when that session
-changes or App is destroyed. A new token replaces the previous connection.
+`http://localhost:3000/service-request-messages`. `ServiceRequestRealtimeSession`
+coordinates that connection with the authenticated session. It is explicitly
+provided by `App` and instantiated in its constructor; its effect and cleanup
+therefore follow the component lifetime. The coordinator opens the socket only
+when both the current profile and access token are present, subscribes to
+notifications before connecting, and cleans up subscriptions and the socket
+when that session changes or App is destroyed. A new token replaces the previous
+connection.
 Logout closes the connection. Socket listeners are removed before disconnection;
 subscribers to the service's public Observable survive connection replacement.
 
@@ -505,12 +633,12 @@ transport errors and local disconnects do not request authentication recovery.
 A server-initiated disconnect requests a recovery attempt; its reason alone does
 not prove token expiration.
 
-App subscribes before opening the socket and uses `exhaustMap` to ignore repeated
+The session coordinator subscribes before opening the socket and uses `exhaustMap` to ignore repeated
 recovery requests while renewal is pending. It calls the existing
 `AuthSession.renewAccessToken()` flow, which sends the refresh cookie and shares
 one in-flight request with concurrent HTTP 401 handling. A changed access token
 restarts the session effect and replaces the socket. If the returned token is
-identical, App explicitly reconnects because no signal change would occur.
+identical, the coordinator explicitly reconnects because no signal change would occur.
 
 One recovery attempt is allowed for the current user-profile instance until a
 successful connection resets the limit. A repeated refusal before connection,
@@ -522,7 +650,7 @@ pending recovery on logout, account changes or App destruction. A renewed token
 retains the current user profile and does not require another `/auth/me` request.
 
 The service exposes `connected$` for every successful connection and reconnection.
-App merges that stream with conversation changes to refresh counts; open
+The session coordinator merges that stream with conversation changes to refresh counts; open
 conversations also reload eligible visible histories after reconnection.
 A pending history refresh is retried after load or send finalization. A valid
 send marks itself active before cancelling a history load, so the cancelled
@@ -543,6 +671,21 @@ HTTP store, interceptor and routing with controlled HTTP responses; they cover
 shared refresh requests, identical-token renewal, repeated refusal, session
 replacement and cancellation. Real socket transport and private room isolation
 are covered by API integration tests.
+
+The extracted services have dedicated lifecycle tests:
+`service-request-realtime-session.spec.ts` covers connection replacement,
+notification subscriptions, renewal coordination and stale-session rejection;
+`unread-message-sync.spec.ts` covers fallback timing, visibility changes, pending
+requests and cleanup. Each suite provides its real service in a minimal component
+host, so destroying the host exercises component-scoped cleanup without rendering
+App. App tests retain the menu, navigation, badges, HTTP/realtime wiring and one
+complete periodic refresh from timer to visible badge. The test scenarios are
+moved rather than copied; the coordinator no longer assumes an initial refresh
+from the separate unread synchronization service.
+
+Free and hourly offering creation share a parameterized test while retaining two
+separate cases. Service existence-only checks are omitted where behavior tests
+already instantiate the same services.
 
 ## Reviews from completed requests
 
@@ -574,6 +717,10 @@ replaces the selected card's action with "Votre avis a été publié". Other
 completed requests, including requests to the same provider, remain eligible.
 An error keeps the form and entered values, shows a generic error message and
 re-enables submission. The associated request status and snapshots are unchanged.
+
+Destroying the review form during publication unsubscribes from its pending
+request. Late responses neither attempt to emit a created review nor set
+a form error. This does not roll back an already published server-side review.
 
 Private request responses include the required boolean `hasReview`. The list
 uses that value for both the confirmation and the review opening guard. After

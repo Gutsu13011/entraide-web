@@ -54,6 +54,68 @@ describe('ServiceOfferingStore', () => {
     expect(expectedServiceOfferings).toEqual(mockServiceOfferingsResponse);
   });
 
+  describe('getById', () => {
+    it.each([
+      { pricingType: ServicePricingType.FREE, hourlyRate: null },
+      { pricingType: ServicePricingType.HOURLY, hourlyRate: 35 },
+    ])(
+      'should fetch one $pricingType offering using both identifiers',
+      ({ pricingType, hourlyRate }) => {
+        const offering: ServiceOffering = {
+          id: 12,
+          serviceProviderId: 7,
+          title: 'Conseil plomberie',
+          description: 'Conseils pour votre installation.',
+          pricingType,
+          hourlyRate,
+        };
+        const nextSpy = vi.fn();
+        const completeSpy = vi.fn();
+        service.getById(7, 12).subscribe({ next: nextSpy, complete: completeSpy });
+
+        const request = httpTesting.expectOne(
+          'http://localhost:3000/service-providers/7/service-offerings/12',
+        );
+        expect(request.request.method).toBe('GET');
+        expect(request.request.body).toBeNull();
+        expect(nextSpy).not.toHaveBeenCalled();
+
+        request.flush(offering);
+
+        expect(nextSpy).toHaveBeenCalledExactlyOnceWith(offering);
+        expect(completeSpy).toHaveBeenCalledOnce();
+      },
+    );
+
+    it.each([
+      { status: 404, statusText: 'Not Found', message: 'Service offering not found' },
+      { status: 500, statusText: 'Internal Server Error', message: 'Database unavailable' },
+    ])(
+      'should propagate a single-offering lookup failure with status $status',
+      ({ status, statusText, message }) => {
+        const nextSpy = vi.fn();
+        const completeSpy = vi.fn();
+        const errorSpy = vi.fn();
+        service.getById(7, 12).subscribe({
+          next: nextSpy,
+          complete: completeSpy,
+          error: errorSpy,
+        });
+
+        const request = httpTesting.expectOne(
+          'http://localhost:3000/service-providers/7/service-offerings/12',
+        );
+        request.flush({ message }, { status, statusText });
+
+        expect(nextSpy).not.toHaveBeenCalled();
+        expect(completeSpy).not.toHaveBeenCalled();
+        expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ status, error: { message } }),
+        );
+      },
+    );
+  });
+
   it('should add free service offering', () => {
     const createServiceOfferingMock: CreateServiceOffering = {
       title: 'title',

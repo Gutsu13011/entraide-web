@@ -1,6 +1,7 @@
 import { Service } from '@angular/core';
 import { Subject } from 'rxjs';
 import { io, Socket } from 'socket.io-client';
+import { API_ORIGIN } from '../../../api.config';
 
 export type ConversationChangedEvent = {
   serviceRequestId: number;
@@ -21,7 +22,7 @@ export class ServiceRequestRealtime {
   connect(accessToken: string): void {
     this.disconnect();
 
-    const socket = io('http://localhost:3000/service-request-messages', {
+    const socket = io(`${API_ORIGIN}/service-request-messages`, {
       autoConnect: false,
       auth: { accessToken },
     });

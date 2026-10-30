@@ -6,10 +6,11 @@ import {
   ServiceOffering,
   UpdateServiceOffering,
 } from '../../models/service-offering.model';
+import { API_ORIGIN } from '../../../api.config';
 
 @Service()
 export class ServiceOfferingStore {
-  private readonly url = 'http://localhost:3000/service-providers';
+  private readonly url = `${API_ORIGIN}/service-providers`;
   private readonly http = inject(HttpClient);
 
   getAll(serviceProviderId: number): Observable<ServiceOffering[]> {
@@ -39,5 +40,11 @@ export class ServiceOfferingStore {
 
   delete(serviceProviderId: number, id: number): Observable<void> {
     return this.http.delete<void>(`${this.url}/${serviceProviderId}/service-offerings/${id}`);
+  }
+
+  getById(serviceProviderId: number, id: number): Observable<ServiceOffering> {
+    return this.http.get<ServiceOffering>(
+      `${this.url}/${serviceProviderId}/service-offerings/${id}`,
+    );
   }
 }

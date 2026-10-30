@@ -171,6 +171,30 @@ describe('ServiceRequestList', () => {
     },
   );
 
+  it.each(modes)(
+    'should unsubscribe from pending $direction loading on closure and ignore its late response',
+    ({ direction, method, requests }) => {
+      const response = new Subject<ServiceRequest[]>();
+      const requestFinalized = vi.fn();
+      storeStub[method].mockReturnValue(response.pipe(finalize(requestFinalized)));
+      createList(direction);
+
+      expect(component.isLoading()).toBe(true);
+      expect(requestFinalized).not.toHaveBeenCalled();
+
+      fixture.destroy();
+
+      expect(requestFinalized).toHaveBeenCalledTimes(1);
+      expect(component.isLoading()).toBe(false);
+
+      response.next(requests);
+      response.complete();
+
+      expect(component.serviceRequests()).toEqual([]);
+      expect(component.loadError()).toBeNull();
+    },
+  );
+
   describe('list display', () => {
     function element(): HTMLElement {
       return fixture.nativeElement as HTMLElement;
@@ -889,6 +913,41 @@ describe('ServiceRequestList', () => {
         expect(
           (fixture.nativeElement as HTMLElement).querySelectorAll('.service-request'),
         ).toHaveLength(1);
+      },
+    );
+
+    it.each(['success', 'error'] as const)(
+      'should cancel a status update on closure and ignore a late %s',
+      (result) => {
+        const response = new Subject<ServiceRequest>();
+        const requestFinalized = vi.fn();
+        storeStub.updateStatus.mockReturnValue(response.pipe(finalize(requestFinalized)));
+        createList('received');
+        const originalRequests = component.serviceRequests();
+
+        component.onUpdateStatus(activeRequest, ServiceRequestStatus.ACCEPTED);
+
+        expect(storeStub.updateStatus).toHaveBeenCalledExactlyOnceWith(activeRequest.id, {
+          status: ServiceRequestStatus.ACCEPTED,
+        });
+        expect(component.updatingRequestId()).toBe(activeRequest.id);
+        expect(requestFinalized).not.toHaveBeenCalled();
+
+        fixture.destroy();
+
+        expect(requestFinalized).toHaveBeenCalledTimes(1);
+        expect(component.updatingRequestId()).toBeNull();
+
+        if (result === 'success') {
+          response.next({ ...activeRequest, status: ServiceRequestStatus.ACCEPTED });
+          response.complete();
+        } else {
+          response.error(new HttpErrorResponse({ status: 500 }));
+        }
+
+        expect(component.serviceRequests()).toBe(originalRequests);
+        expect(component.serviceRequests()[0].status).toBe(ServiceRequestStatus.SENT);
+        expect(component.statusUpdateError()).toBeNull();
       },
     );
 

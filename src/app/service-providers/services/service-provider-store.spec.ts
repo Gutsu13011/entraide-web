@@ -51,10 +51,6 @@ describe('ServiceProviderStore', () => {
     httpTesting.verify();
   });
 
-  it('should be created', () => {
-    expect(service).toBeTruthy();
-  });
-
   it('should fetch the first page by default', () => {
     let receivedServiceProviders: PaginatedServiceProviders | undefined;
     service.getAll().subscribe((response) => (receivedServiceProviders = response));

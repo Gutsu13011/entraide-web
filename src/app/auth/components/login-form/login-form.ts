@@ -20,7 +20,6 @@ export class LoginForm {
 
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
-  private readonly requestReturnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
 
   readonly authSession = inject(AuthSession);
   readonly loginForm = new FormGroup({
@@ -36,7 +35,7 @@ export class LoginForm {
 
   private getReturnUrl(): UrlTree {
     const fallback = this.router.parseUrl('/');
-    const destination = this.requestReturnUrl;
+    const destination = this.route.snapshot.queryParamMap.get('returnUrl');
 
     if (
       !destination ||

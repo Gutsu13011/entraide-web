@@ -1,8 +1,9 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AuthStore } from '../../services/auth-store';
 import { Router } from '@angular/router';
 import { finalize } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
   imports: [ReactiveFormsModule],
@@ -13,6 +14,7 @@ import { finalize } from 'rxjs';
 export class RegisterForm {
   private readonly authStore = inject(AuthStore);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly isSubmitting = signal<boolean>(false);
   readonly submitError = signal<string | null>(null);
@@ -51,7 +53,10 @@ export class RegisterForm {
     this.submitError.set(null);
     this.authStore
       .register(data)
-      .pipe(finalize(() => this.isSubmitting.set(false)))
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.isSubmitting.set(false)),
+      )
       .subscribe({
         next: () => {
           this.router.navigate(['/login']);

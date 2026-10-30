@@ -3,10 +3,11 @@ import { inject, Service } from '@angular/core';
 import type { Observable } from 'rxjs';
 import type { CreateReview, Review } from '../../models/review.model';
 import type { ReviewSummary } from '../../models/review-summary.model';
+import { API_ORIGIN } from '../../../api.config';
 
 @Service()
 export class ReviewStore {
-  private readonly apiUrl = 'http://localhost:3000/service-providers';
+  private readonly apiUrl = `${API_ORIGIN}/service-providers`;
   private readonly http = inject(HttpClient);
 
   add(serviceProviderId: number, createReview: CreateReview): Observable<Review> {

@@ -7,8 +7,9 @@ import type {
 } from '../../../models/service-provider-query.model';
 import { ServiceProviderCard } from '../service-provider-card/service-provider-card';
 import { ServiceProviderStore } from '../../services/service-provider-store';
-import { finalize } from 'rxjs';
+import { catchError, EMPTY, finalize, pipe, switchMap, tap } from 'rxjs';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { rxMethod } from '@ngrx/signals/rxjs-interop';
 
 type AvailabilityFilter = '' | 'true' | 'false';
 @Component({
@@ -21,7 +22,6 @@ export class ServiceProviderList {
   constructor() {
     this.loadPage(1);
   }
-
   private readonly serviceProviderStore = inject(ServiceProviderStore);
 
   readonly isLoading = signal<boolean>(true);
@@ -43,32 +43,38 @@ export class ServiceProviderList {
     nonNullable: true,
   });
 
-  loadPage(page: number): void {
-    this.isLoading.set(true);
-    this.errorMessage.set(null);
-    this.serviceProviderStore
-      .getAll({
-        page,
-        search: this.searchTerm(),
-        city: this.cityFilter(),
-        available: this.availabilityFilter(),
-        sortBy: this.sortBy(),
-        sortOrder: this.sortOrder(),
-      })
-      .pipe(finalize(() => this.isLoading.set(false)))
-      .subscribe({
-        next: (response) => {
-          this.serviceProviders.set(response.data);
-          this.currentPage.set(response.page);
-          this.totalPages.set(response.totalPages);
-          this.total.set(response.total);
-        },
-        error: (error) => {
-          console.error('error in ServiceProviderList', error);
-          this.errorMessage.set('Impossible de charger les intervenants.');
-        },
-      });
-  }
+  readonly loadPage = rxMethod<number>(
+    pipe(
+      switchMap((page) => {
+        this.isLoading.set(true);
+        this.errorMessage.set(null);
+
+        return this.serviceProviderStore
+          .getAll({
+            page,
+            search: this.searchTerm(),
+            city: this.cityFilter(),
+            available: this.availabilityFilter(),
+            sortBy: this.sortBy(),
+            sortOrder: this.sortOrder(),
+          })
+          .pipe(
+            tap((response) => {
+              this.serviceProviders.set(response.data);
+              this.currentPage.set(response.page);
+              this.totalPages.set(response.totalPages);
+              this.total.set(response.total);
+            }),
+            catchError((error: unknown) => {
+              console.error('error in ServiceProviderList', error);
+              this.errorMessage.set('Impossible de charger les intervenants.');
+              return EMPTY;
+            }),
+            finalize(() => this.isLoading.set(false)),
+          );
+      }),
+    ),
+  );
 
   applyFilters(): void {
     const search = this.searchControl.value.trim();

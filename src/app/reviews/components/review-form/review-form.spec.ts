@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ReviewForm } from './review-form';
 import { ReviewStore } from '../../services/review-store';
 import type { Review } from '../../../models/review.model';
-import { Subject } from 'rxjs';
+import { finalize, Subject } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 
 describe('ReviewForm', () => {
@@ -116,6 +116,42 @@ describe('ReviewForm', () => {
       response$.complete();
       expect(component.isSubmitting()).toBe(false);
     });
+
+    it.each(['success', 'error'] as const)(
+      'should unsubscribe on closure and ignore a late publication %s',
+      (result) => {
+        const response = new Subject<Review>();
+        const requestFinalized = vi.fn();
+        const emitReview = vi.spyOn(component.reviewCreated, 'emit');
+        reviewStoreStub.add.mockReturnValue(response.pipe(finalize(requestFinalized)));
+        component.reviewForm.setValue(values);
+
+        component.onSubmit();
+
+        expect(reviewStoreStub.add).toHaveBeenCalledExactlyOnceWith(13, {
+          ...values,
+          serviceRequestId: 41,
+        });
+        expect(component.isSubmitting()).toBe(true);
+        expect(requestFinalized).not.toHaveBeenCalled();
+
+        fixture.destroy();
+
+        expect(requestFinalized).toHaveBeenCalledTimes(1);
+        expect(component.isSubmitting()).toBe(false);
+
+        if (result === 'success') {
+          response.next(savedReview);
+          response.complete();
+        } else {
+          response.error(new HttpErrorResponse({ status: 500 }));
+        }
+
+        expect(emitReview).not.toHaveBeenCalled();
+        expect(component.submitError()).toBeNull();
+        expect(component.reviewForm.getRawValue()).toEqual(values);
+      },
+    );
 
     it('should ignore repeated submissions until the pending request completes', () => {
       const response$ = new Subject<Review>();

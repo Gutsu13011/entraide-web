@@ -1,3 +1,5 @@
+@use '../../../../styles/forms' as forms;
+
 :host {
   display: block;
   min-width: 0;
@@ -95,8 +97,5 @@ button {
 }
 
 button:disabled {
-  border-color: var(--color-border);
-  background-color: var(--color-border);
-  color: var(--color-muted);
-  cursor: wait;
+  @include forms.disabled-button($cursor: wait);
 }
