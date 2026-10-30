@@ -16,6 +16,7 @@ import {
 } from 'rxjs';
 import { ServiceRequestStore } from '../../services/service-request-store';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { HttpErrorResponse } from '@angular/common/http';
 
 @Component({
   imports: [ReactiveFormsModule, RouterLink],
@@ -69,22 +70,15 @@ export class ServiceRequestForm implements OnInit {
           this.serviceOffering.set(null);
           this.serviceRequestForm.reset();
 
-          return this.serviceOfferingStore.getAll(this.serviceProviderId).pipe(
-            tap((serviceOfferings) => {
-              const serviceOffering = serviceOfferings.find(
-                (so) => so.id === this.serviceOfferingId,
-              );
-
-              if (serviceOffering === undefined) {
-                this.loadError.set('Cette offre de service est introuvable.');
-                return;
-              }
-
+          return this.serviceOfferingStore.getById(serviceProviderId, serviceOfferingId).pipe(
+            tap((serviceOffering) => {
               this.serviceOffering.set(serviceOffering);
             }),
-            catchError(() => {
+            catchError((error: unknown) => {
               this.loadError.set(
-                'Impossible de charger cette offre de service. Veuillez réessayer.',
+                error instanceof HttpErrorResponse && error.status === 404
+                  ? 'Cette offre de service est introuvable.'
+                  : 'Impossible de charger cette offre de service. Veuillez réessayer.',
               );
 
               return EMPTY;

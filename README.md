@@ -337,13 +337,20 @@ Editing uses `/service-providers/:id/edit` in the frontend and sends a PATCH
 request to `/service-providers/:id` in the API. The form does not send the
 profile ID or owner ID in the request body.
 
+`ServiceOfferingStore.getById(providerId, offeringId)` calls the public
+`GET /service-providers/:providerId/service-offerings/:offeringId` endpoint
+and returns a single offering. HTTP errors, including 404 and 500 responses,
+are propagated to the caller.
+
 Offering editing uses
 `/service-providers/:id/service-offerings/:offeringId/edit` in the frontend
 and sends a PATCH request to
 `/service-providers/:id/service-offerings/:offeringId` in the API.
-The form loads the provider and its offerings, checks ownership, and prefills
-the selected offering. Loading failures and missing offerings display an error
-and prevent submission. Saving waits for the API response before returning
+The form loads the provider and the selected offering through separate single-resource
+GET requests, checks ownership, and prefills the offering without downloading
+the provider's offering list. A 404 displays the missing-offering message; other
+loading failures display the retry message. These errors
+prevent submission. Saving waits for the API response before returning
 to the provider detail page; failed saves preserve the form and allow retry.
 
 Leaving the offering form stops its pricing-type listener and unsubscribes
@@ -383,8 +390,11 @@ Profiles without an account owner cannot receive requests and have no request li
 
 The protected frontend route is
 `/service-providers/:id/service-offerings/:offeringId/service-requests/new`.
-It loads the provider's offerings and displays the selected offering's title,
-description and pricing. Missing offerings and loading errors hide the form.
+It loads the selected offering directly through `ServiceOfferingStore.getById`,
+using both route identifiers, and displays its title, description and pricing.
+It does not download the provider's offering list. A 404 displays the
+missing-offering message; other loading failures display the retry message.
+Both hide the form and prevent submission.
 The return link navigates to the provider detail page without reloading the app.
 
 The message must contain at least one non-whitespace character. Validation

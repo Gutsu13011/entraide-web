@@ -18,6 +18,7 @@ import {
 import { AuthSession } from '../../../auth/services/auth-session';
 import { ServiceProviderStore } from '../../../service-providers/services/service-provider-store';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { HttpErrorResponse } from '@angular/common/http';
 
 @Component({
   imports: [ReactiveFormsModule, RouterLink],
@@ -129,29 +130,25 @@ export class ServiceOfferingForm {
 
           return forkJoin({
             serviceProvider: this.serviceProviderStore.getById(serviceProviderId),
-            serviceOfferings: this.serviceOfferingStore.getAll(serviceProviderId),
+            serviceOffering: this.serviceOfferingStore.getById(
+              serviceProviderId,
+              serviceOfferingId,
+            ),
           }).pipe(
-            tap(({ serviceProvider, serviceOfferings }) => {
+            tap(({ serviceProvider, serviceOffering }) => {
               if (serviceProvider.ownerUserId !== currentUser.id) {
                 this.loadError.set('Vous ne pouvez pas modifier cette offre de service.');
                 this.router.navigate(['/service-providers', serviceProvider.id]);
                 return;
               }
 
-              const offering = serviceOfferings.find(
-                (offering) => offering.id === this.serviceOfferingId,
-              );
-
-              if (offering === undefined) {
-                this.loadError.set('Cette offre de service est introuvable.');
-                return;
-              }
-
-              this.serviceOfferingForm.patchValue(offering);
+              this.serviceOfferingForm.patchValue(serviceOffering);
             }),
-            catchError(() => {
+            catchError((error: unknown) => {
               this.loadError.set(
-                'Impossible de charger cette offre de service. Veuillez réessayer.',
+                error instanceof HttpErrorResponse && error.status === 404
+                  ? 'Cette offre de service est introuvable.'
+                  : 'Impossible de charger cette offre de service. Veuillez réessayer.',
               );
 
               return EMPTY;

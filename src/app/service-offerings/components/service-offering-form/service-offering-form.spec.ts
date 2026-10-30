@@ -12,11 +12,13 @@ import { ServiceProviderStore } from '../../../service-providers/services/servic
 import { AuthSession } from '../../../auth/services/auth-session';
 import type { ServiceProvider } from '../../../models/service-provider.model';
 import { finalize, of, Subject, throwError } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
 
 describe('ServiceOfferingForm', () => {
   const serviceOfferingStoreStub = {
     add: vi.fn(),
     update: vi.fn(),
+    getById: vi.fn(),
     getAll: vi.fn(),
   };
 
@@ -48,7 +50,10 @@ describe('ServiceOfferingForm', () => {
   beforeEach(async () => {
     serviceOfferingStoreStub.add.mockReset();
     serviceOfferingStoreStub.update.mockReset();
-    serviceOfferingStoreStub.getAll.mockReset().mockReturnValue(of([]));
+    serviceOfferingStoreStub.getAll.mockReset();
+    serviceOfferingStoreStub.getById
+      .mockReset()
+      .mockReturnValue(throwError(() => new HttpErrorResponse({ status: 404 })));
     authSessionStub.currentUser.mockReset().mockReturnValue(currentUserMock);
     serviceProviderStoreStub.getById.mockReset().mockReturnValue(of(providerMock));
     await TestBed.configureTestingModule({
@@ -79,6 +84,7 @@ describe('ServiceOfferingForm', () => {
   });
 
   afterEach(() => {
+    expect(serviceOfferingStoreStub.getAll).not.toHaveBeenCalled();
     vi.restoreAllMocks();
   });
 
@@ -215,7 +221,7 @@ describe('ServiceOfferingForm', () => {
     }
 
     it('should not load existing offerings in creation mode', () => {
-      expect(serviceOfferingStoreStub.getAll).not.toHaveBeenCalled();
+      expect(serviceOfferingStoreStub.getById).not.toHaveBeenCalled();
       expect(component.isLoading()).toBe(false);
       expect(component.loadError()).toBeNull();
     });
@@ -224,13 +230,11 @@ describe('ServiceOfferingForm', () => {
       hourlyOffering,
       { ...hourlyOffering, pricingType: ServicePricingType.FREE, hourlyRate: null },
     ])('should prefill a $pricingType offering selected by its route id', async (offering) => {
-      serviceOfferingStoreStub.getAll.mockReturnValue(
-        of([{ ...hourlyOffering, id: 11, title: 'Autre offre' }, offering]),
-      );
+      serviceOfferingStoreStub.getById.mockReturnValue(of(offering));
 
       await openEditForm();
 
-      expect(serviceOfferingStoreStub.getAll).toHaveBeenCalledExactlyOnceWith(7);
+      expect(serviceOfferingStoreStub.getById).toHaveBeenCalledExactlyOnceWith(7, 12);
       expect(component.serviceOfferingForm.getRawValue()).toEqual({
         title: offering.title,
         description: offering.description,
@@ -243,8 +247,8 @@ describe('ServiceOfferingForm', () => {
     });
 
     it('should block submission while loading and clear loading when the request completes', async () => {
-      const response$ = new Subject<ServiceOffering[]>();
-      serviceOfferingStoreStub.getAll.mockReturnValue(response$);
+      const response$ = new Subject<ServiceOffering>();
+      serviceOfferingStoreStub.getById.mockReturnValue(response$);
       await openEditForm();
       component.serviceOfferingForm.patchValue({
         title: 'Titre valide',
@@ -263,7 +267,7 @@ describe('ServiceOfferingForm', () => {
       expect(serviceOfferingStoreStub.add).not.toHaveBeenCalled();
       expect(serviceOfferingStoreStub.update).not.toHaveBeenCalled();
 
-      response$.next([hourlyOffering]);
+      response$.next(hourlyOffering);
       expect(component.serviceOfferingForm.controls.hourlyRate.value).toBe(20);
       expect(component.isLoading()).toBe(true);
       response$.complete();
@@ -277,14 +281,14 @@ describe('ServiceOfferingForm', () => {
 
     it('should cancel both edit requests on departure without prefilling from late responses', async () => {
       const providerResponse = new Subject<ServiceProvider>();
-      const offeringsResponse = new Subject<ServiceOffering[]>();
+      const offeringResponse = new Subject<ServiceOffering>();
       const providerFinalized = vi.fn();
-      const offeringsFinalized = vi.fn();
+      const offeringFinalized = vi.fn();
       serviceProviderStoreStub.getById.mockReturnValue(
         providerResponse.pipe(finalize(providerFinalized)),
       );
-      serviceOfferingStoreStub.getAll.mockReturnValue(
-        offeringsResponse.pipe(finalize(offeringsFinalized)),
+      serviceOfferingStoreStub.getById.mockReturnValue(
+        offeringResponse.pipe(finalize(offeringFinalized)),
       );
       await openEditForm();
       const abandonedForm = component;
@@ -293,7 +297,7 @@ describe('ServiceOfferingForm', () => {
 
       expect(abandonedForm.isLoading()).toBe(true);
       expect(providerFinalized).not.toHaveBeenCalled();
-      expect(offeringsFinalized).not.toHaveBeenCalled();
+      expect(offeringFinalized).not.toHaveBeenCalled();
 
       await harness.navigateByUrl(
         '/service-providers/7/service-offerings/new',
@@ -301,23 +305,24 @@ describe('ServiceOfferingForm', () => {
       );
 
       expect(providerFinalized).toHaveBeenCalledTimes(1);
-      expect(offeringsFinalized).toHaveBeenCalledTimes(1);
+      expect(offeringFinalized).toHaveBeenCalledTimes(1);
       expect(abandonedForm.isLoading()).toBe(false);
 
       providerResponse.next(providerMock);
       providerResponse.complete();
-      offeringsResponse.next([hourlyOffering]);
-      offeringsResponse.complete();
+      offeringResponse.next(hourlyOffering);
+      offeringResponse.complete();
 
       expect(abandonedForm.serviceOfferingForm.getRawValue()).toEqual(originalValues);
       expect(abandonedForm.loadError()).toBeNull();
       expect(navigateSpy).not.toHaveBeenCalled();
     });
 
-    it('should report a loading failure and block submission even if the form is valid', async () => {
-      serviceOfferingStoreStub.getAll.mockReturnValue(
-        throwError(() => new Error('Network unavailable')),
-      );
+    it.each([
+      { label: 'a network failure', error: new Error('Network unavailable') },
+      { label: 'an HTTP 500 response', error: new HttpErrorResponse({ status: 500 }) },
+    ])('should report $label and block submission even if the form is valid', async ({ error }) => {
+      serviceOfferingStoreStub.getById.mockReturnValue(throwError(() => error));
       await openEditForm();
 
       expect(component.isLoading()).toBe(false);
@@ -342,9 +347,9 @@ describe('ServiceOfferingForm', () => {
       expect(serviceOfferingStoreStub.update).not.toHaveBeenCalled();
     });
 
-    it('should report an offering missing from the provider list and block submission', async () => {
-      serviceOfferingStoreStub.getAll.mockReturnValue(
-        of([{ ...hourlyOffering, id: 13, title: 'Autre offre' }]),
+    it('should report a 404 offering response and block submission', async () => {
+      serviceOfferingStoreStub.getById.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ status: 404 })),
       );
       await openEditForm();
 
@@ -382,7 +387,7 @@ describe('ServiceOfferingForm', () => {
 
     async function openForm(mode: 'creation' | 'edition', offering = hourlyOffering) {
       if (mode === 'edition') {
-        serviceOfferingStoreStub.getAll.mockReturnValue(of([offering]));
+        serviceOfferingStoreStub.getById.mockReturnValue(of(offering));
         component = await harness.navigateByUrl(
           '/service-providers/7/service-offerings/12/edit',
           ServiceOfferingForm,
@@ -500,7 +505,7 @@ describe('ServiceOfferingForm', () => {
         expect(abandonedForm.isSubmitting()).toBe(true);
         expect(requestFinalized).not.toHaveBeenCalled();
 
-        serviceOfferingStoreStub.getAll.mockReturnValue(of([hourlyOffering]));
+        serviceOfferingStoreStub.getById.mockReturnValue(of(hourlyOffering));
         const destination =
           mode === 'creation'
             ? '/service-providers/7/service-offerings/12/edit'
@@ -595,7 +600,7 @@ describe('ServiceOfferingForm', () => {
 
     async function openForm(mode: 'creation' | 'edition') {
       if (mode === 'edition') {
-        serviceOfferingStoreStub.getAll.mockReturnValue(of([offering]));
+        serviceOfferingStoreStub.getById.mockReturnValue(of(offering));
         component = await harness.navigateByUrl(
           '/service-providers/7/service-offerings/12/edit',
           ServiceOfferingForm,
@@ -705,7 +710,7 @@ describe('ServiceOfferingForm', () => {
     };
 
     async function openOffering(offering = hourlyOffering) {
-      serviceOfferingStoreStub.getAll.mockReturnValueOnce(of([offering]));
+      serviceOfferingStoreStub.getById.mockReturnValueOnce(of(offering));
       component = await harness.navigateByUrl(
         `/service-providers/7/service-offerings/${offering.id}/edit`,
         ServiceOfferingForm,
@@ -724,8 +729,8 @@ describe('ServiceOfferingForm', () => {
         controls.title.setValue('Ancien brouillon');
         controls.title.markAsDirty();
         controls.title.markAsTouched();
-        const response = new Subject<ServiceOffering[]>();
-        serviceOfferingStoreStub.getAll.mockReturnValueOnce(response);
+        const response = new Subject<ServiceOffering>();
+        serviceOfferingStoreStub.getById.mockReturnValueOnce(response);
 
         expect(
           await harness.navigateByUrl(
@@ -742,7 +747,7 @@ describe('ServiceOfferingForm', () => {
         expect(component.serviceOfferingForm.pristine).toBe(true);
         expect(component.serviceOfferingForm.untouched).toBe(true);
         expect(harness.routeNativeElement!.querySelector('form')).toBeNull();
-        response.next([initial, next]);
+        response.next(next);
         response.complete();
         harness.detectChanges();
 
@@ -777,7 +782,9 @@ describe('ServiceOfferingForm', () => {
       serviceProviderStoreStub.getById.mockReturnValueOnce(
         of({ ...providerMock, id: 8, ownerUserId: 99 }),
       );
-      serviceOfferingStoreStub.getAll.mockReturnValueOnce(of([]));
+      serviceOfferingStoreStub.getById.mockReturnValueOnce(
+        of({ ...hourlyOffering, serviceProviderId: 8 }),
+      );
       const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
 
       expect(
@@ -788,7 +795,7 @@ describe('ServiceOfferingForm', () => {
       ).toBe(component);
 
       expect(serviceProviderStoreStub.getById).toHaveBeenLastCalledWith(8);
-      expect(serviceOfferingStoreStub.getAll).toHaveBeenLastCalledWith(8);
+      expect(serviceOfferingStoreStub.getById).toHaveBeenLastCalledWith(8, 12);
       expect(component.serviceProviderId).toBe(8);
       expect(component.serviceOfferingId).toBe(12);
       expect(component.loadError()).toBe('Vous ne pouvez pas modifier cette offre de service.');
@@ -823,7 +830,7 @@ describe('ServiceOfferingForm', () => {
       expect(component.serviceOfferingForm.pristine).toBe(true);
       expect(component.serviceOfferingForm.untouched).toBe(true);
       expect(serviceProviderStoreStub.getById).not.toHaveBeenCalled();
-      expect(serviceOfferingStoreStub.getAll).not.toHaveBeenCalled();
+      expect(serviceOfferingStoreStub.getById).not.toHaveBeenCalled();
       expect(harness.routeNativeElement!.querySelector('a')?.getAttribute('href')).toBe(
         '/service-providers/8',
       );
@@ -844,24 +851,24 @@ describe('ServiceOfferingForm', () => {
 
     it('should cancel both old requests and ignore stale ownership and prefill responses', async () => {
       const oldProvider = new Subject<ServiceProvider>();
-      const oldOfferings = new Subject<ServiceOffering[]>();
+      const oldOffering = new Subject<ServiceOffering>();
       const newProvider = new Subject<ServiceProvider>();
-      const newOfferings = new Subject<ServiceOffering[]>();
+      const newOffering = new Subject<ServiceOffering>();
       const providerStopped = vi.fn();
-      const offeringsStopped = vi.fn();
+      const offeringStopped = vi.fn();
       serviceProviderStoreStub.getById
         .mockReturnValueOnce(oldProvider.pipe(finalize(providerStopped)))
         .mockReturnValueOnce(newProvider);
-      serviceOfferingStoreStub.getAll
-        .mockReturnValueOnce(oldOfferings.pipe(finalize(offeringsStopped)))
-        .mockReturnValueOnce(newOfferings);
+      serviceOfferingStoreStub.getById
+        .mockReturnValueOnce(oldOffering.pipe(finalize(offeringStopped)))
+        .mockReturnValueOnce(newOffering);
       component = await harness.navigateByUrl(
         '/service-providers/7/service-offerings/12/edit',
         ServiceOfferingForm,
       );
       const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
       expect(providerStopped).not.toHaveBeenCalled();
-      expect(offeringsStopped).not.toHaveBeenCalled();
+      expect(offeringStopped).not.toHaveBeenCalled();
 
       expect(
         await harness.navigateByUrl(
@@ -871,17 +878,17 @@ describe('ServiceOfferingForm', () => {
       ).toBe(component);
 
       expect(providerStopped).toHaveBeenCalledTimes(1);
-      expect(offeringsStopped).toHaveBeenCalledTimes(1);
+      expect(offeringStopped).toHaveBeenCalledTimes(1);
       expect(component.isLoading()).toBe(true);
       newProvider.next(providerMock);
       newProvider.complete();
       const next = { ...hourlyOffering, id: 13, title: 'Nouvelle offre' };
-      newOfferings.next([next]);
-      newOfferings.complete();
+      newOffering.next(next);
+      newOffering.complete();
       oldProvider.next({ ...providerMock, ownerUserId: 99 });
       oldProvider.complete();
-      oldOfferings.next([hourlyOffering]);
-      oldOfferings.complete();
+      oldOffering.next(hourlyOffering);
+      oldOffering.complete();
 
       expect(component.isLoading()).toBe(false);
       expect(component.serviceOfferingForm.controls.title.value).toBe('Nouvelle offre');
@@ -895,9 +902,9 @@ describe('ServiceOfferingForm', () => {
       serviceOfferingStoreStub.update.mockReturnValue(throwError(() => new Error('Saving failed')));
       component.onSubmit();
       expect(component.submitError()).not.toBeNull();
-      serviceOfferingStoreStub.getAll
+      serviceOfferingStoreStub.getById
         .mockReturnValueOnce(throwError(() => new Error('Loading failed')))
-        .mockReturnValueOnce(of([{ ...hourlyOffering, id: 14 }]));
+        .mockReturnValueOnce(of({ ...hourlyOffering, id: 14 }));
 
       expect(
         await harness.navigateByUrl(
@@ -923,6 +930,35 @@ describe('ServiceOfferingForm', () => {
       expect(harness.routeNativeElement!.querySelector('form')).not.toBeNull();
     });
 
+    it('should clear a previous 404 and load another offering in the same component', async () => {
+      serviceOfferingStoreStub.getById.mockReturnValueOnce(
+        throwError(() => new HttpErrorResponse({ status: 404 })),
+      );
+      component = await harness.navigateByUrl(
+        '/service-providers/7/service-offerings/12/edit',
+        ServiceOfferingForm,
+      );
+      expect(component.loadError()).toBe('Cette offre de service est introuvable.');
+      expect(component.isLoading()).toBe(false);
+      expect(harness.routeNativeElement!.querySelector('form')).toBeNull();
+      const next = { ...hourlyOffering, id: 13, title: 'Offre existante' };
+      serviceOfferingStoreStub.getById.mockReturnValueOnce(of(next));
+
+      expect(
+        await harness.navigateByUrl(
+          '/service-providers/7/service-offerings/13/edit',
+          ServiceOfferingForm,
+        ),
+      ).toBe(component);
+      harness.detectChanges();
+
+      expect(serviceOfferingStoreStub.getById).toHaveBeenLastCalledWith(7, 13);
+      expect(component.loadError()).toBeNull();
+      expect(component.isLoading()).toBe(false);
+      expect(component.serviceOfferingForm.controls.title.value).toBe(next.title);
+      expect(harness.routeNativeElement!.querySelector('form')).not.toBeNull();
+    });
+
     it('should preserve the draft when the provider and offering ids remain the same', async () => {
       await openOffering();
       const controls = component.serviceOfferingForm.controls;
@@ -939,7 +975,7 @@ describe('ServiceOfferingForm', () => {
       ).toBe(component);
 
       expect(serviceProviderStoreStub.getById).toHaveBeenCalledTimes(1);
-      expect(serviceOfferingStoreStub.getAll).toHaveBeenCalledTimes(1);
+      expect(serviceOfferingStoreStub.getById).toHaveBeenCalledTimes(1);
       expect(controls.title.value).toBe('Brouillon conservé');
       expect(controls.title.dirty).toBe(true);
       expect(controls.title.touched).toBe(true);
@@ -973,7 +1009,7 @@ describe('ServiceOfferingForm', () => {
         expect(component.isSubmitting()).toBe(true);
         expect(stopped).not.toHaveBeenCalled();
         const next = { ...hourlyOffering, id: 13, title: 'Autre offre' };
-        if (mode === 'edit') serviceOfferingStoreStub.getAll.mockReturnValueOnce(of([next]));
+        if (mode === 'edit') serviceOfferingStoreStub.getById.mockReturnValueOnce(of(next));
         const destination =
           mode === 'edit'
             ? '/service-providers/7/service-offerings/13/edit'
@@ -1010,7 +1046,7 @@ describe('ServiceOfferingForm', () => {
     };
 
     async function openEditForm() {
-      serviceOfferingStoreStub.getAll.mockReturnValue(of([offering]));
+      serviceOfferingStoreStub.getById.mockReturnValue(of(offering));
       component = await harness.navigateByUrl(
         '/service-providers/7/service-offerings/12/edit',
         ServiceOfferingForm,
@@ -1026,7 +1062,7 @@ describe('ServiceOfferingForm', () => {
 
       expect(navigateSpy).toHaveBeenCalledExactlyOnceWith(['/login']);
       expect(serviceProviderStoreStub.getById).not.toHaveBeenCalled();
-      expect(serviceOfferingStoreStub.getAll).not.toHaveBeenCalled();
+      expect(serviceOfferingStoreStub.getById).not.toHaveBeenCalled();
       expect(component.loadError()).toBe('Vous devez être connecté pour modifier cette offre.');
       expect(harness.routeNativeElement?.querySelector('form')).toBeNull();
     });
@@ -1078,18 +1114,18 @@ describe('ServiceOfferingForm', () => {
 
     it('should wait for both requests to complete before checking ownership and prefilling', async () => {
       const providerResponse$ = new Subject<ServiceProvider>();
-      const offeringsResponse$ = new Subject<ServiceOffering[]>();
+      const offeringResponse$ = new Subject<ServiceOffering>();
       serviceProviderStoreStub.getById.mockReturnValue(providerResponse$);
-      serviceOfferingStoreStub.getAll.mockReturnValue(offeringsResponse$);
+      serviceOfferingStoreStub.getById.mockReturnValue(offeringResponse$);
       component = await harness.navigateByUrl(
         '/service-providers/7/service-offerings/12/edit',
         ServiceOfferingForm,
       );
 
       expect(serviceProviderStoreStub.getById).toHaveBeenCalledExactlyOnceWith(7);
-      expect(serviceOfferingStoreStub.getAll).toHaveBeenCalledExactlyOnceWith(7);
-      offeringsResponse$.next([offering]);
-      offeringsResponse$.complete();
+      expect(serviceOfferingStoreStub.getById).toHaveBeenCalledExactlyOnceWith(7, 12);
+      offeringResponse$.next(offering);
+      offeringResponse$.complete();
       providerResponse$.next(providerMock);
       expect(component.isLoading()).toBe(true);
       expect(component.serviceOfferingForm.controls.title.value).toBe('');

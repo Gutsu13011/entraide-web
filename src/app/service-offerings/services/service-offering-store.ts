@@ -41,4 +41,10 @@ export class ServiceOfferingStore {
   delete(serviceProviderId: number, id: number): Observable<void> {
     return this.http.delete<void>(`${this.url}/${serviceProviderId}/service-offerings/${id}`);
   }
+
+  getById(serviceProviderId: number, id: number): Observable<ServiceOffering> {
+    return this.http.get<ServiceOffering>(
+      `${this.url}/${serviceProviderId}/service-offerings/${id}`,
+    );
+  }
 }

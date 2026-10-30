@@ -17,7 +17,7 @@ import { ServiceRequest, ServiceRequestStatus } from '../../../models/service-re
 describe('ServiceRequestForm', () => {
   let component: ServiceRequestForm;
   let fixture: ComponentFixture<ServiceRequestForm>;
-  const serviceOfferingStoreStub = { getAll: vi.fn() };
+  const serviceOfferingStoreStub = { getById: vi.fn(), getAll: vi.fn() };
   const serviceRequestStoreStub = { add: vi.fn() };
   let router: Router;
   let routeParams: BehaviorSubject<ParamMap>;
@@ -56,7 +56,8 @@ describe('ServiceRequestForm', () => {
 
   beforeEach(async () => {
     routeParams = new BehaviorSubject(convertToParamMap({ id: '7', offeringId: '12' }));
-    serviceOfferingStoreStub.getAll.mockReset().mockReturnValue(of([hourlyOffering]));
+    serviceOfferingStoreStub.getAll.mockReset();
+    serviceOfferingStoreStub.getById.mockReset().mockReturnValue(of(hourlyOffering));
     serviceRequestStoreStub.add.mockReset().mockReturnValue(of(createdRequest));
     await TestBed.configureTestingModule({
       imports: [ServiceRequestForm],
@@ -77,6 +78,7 @@ describe('ServiceRequestForm', () => {
   });
 
   afterEach(() => {
+    expect(serviceOfferingStoreStub.getAll).not.toHaveBeenCalled();
     routeParams.complete();
     vi.restoreAllMocks();
   });
@@ -134,14 +136,13 @@ describe('ServiceRequestForm', () => {
     it.each([
       { pricingType: ServicePricingType.HOURLY, hourlyRate: 35 },
       { pricingType: ServicePricingType.FREE, hourlyRate: null },
-    ])('should load the selected $pricingType offering from the provider list', (pricing) => {
+    ])('should load the selected $pricingType offering directly', (pricing) => {
       const selectedOffering = { ...hourlyOffering, ...pricing };
-      const otherOffering = { ...hourlyOffering, id: 7, title: 'Autre offre' };
-      serviceOfferingStoreStub.getAll.mockReturnValue(of([otherOffering, selectedOffering]));
+      serviceOfferingStoreStub.getById.mockReturnValue(of(selectedOffering));
 
       createForm();
 
-      expect(serviceOfferingStoreStub.getAll).toHaveBeenCalledExactlyOnceWith(7);
+      expect(serviceOfferingStoreStub.getById).toHaveBeenCalledExactlyOnceWith(7, 12);
       expect(component.serviceOffering()).toEqual(selectedOffering);
       expect(component.isLoading()).toBe(false);
       expect(component.loadError()).toBeNull();
@@ -149,17 +150,17 @@ describe('ServiceRequestForm', () => {
     });
 
     it('should remain loading until the offering request completes', () => {
-      const response$ = new Subject<ServiceOffering[]>();
-      serviceOfferingStoreStub.getAll.mockReturnValue(response$);
+      const response$ = new Subject<ServiceOffering>();
+      serviceOfferingStoreStub.getById.mockReturnValue(response$);
 
       createForm();
 
       expect(component.isLoading()).toBe(true);
       expect(component.serviceOffering()).toBeNull();
       expect(component.loadError()).toBeNull();
-      expect(serviceOfferingStoreStub.getAll).toHaveBeenCalledExactlyOnceWith(7);
+      expect(serviceOfferingStoreStub.getById).toHaveBeenCalledExactlyOnceWith(7, 12);
 
-      response$.next([hourlyOffering]);
+      response$.next(hourlyOffering);
       expect(component.serviceOffering()).toEqual(hourlyOffering);
       expect(component.isLoading()).toBe(true);
 
@@ -169,9 +170,9 @@ describe('ServiceRequestForm', () => {
     });
 
     it('should cancel offering loading on closure and ignore its late response', () => {
-      const response = new Subject<ServiceOffering[]>();
+      const response = new Subject<ServiceOffering>();
       const requestFinalized = vi.fn();
-      serviceOfferingStoreStub.getAll.mockReturnValue(response.pipe(finalize(requestFinalized)));
+      serviceOfferingStoreStub.getById.mockReturnValue(response.pipe(finalize(requestFinalized)));
       createForm();
 
       expect(component.isLoading()).toBe(true);
@@ -182,7 +183,7 @@ describe('ServiceRequestForm', () => {
       expect(requestFinalized).toHaveBeenCalledTimes(1);
       expect(component.isLoading()).toBe(false);
 
-      response.next([hourlyOffering]);
+      response.next(hourlyOffering);
       response.complete();
 
       expect(component.serviceOffering()).toBeNull();
@@ -191,10 +192,12 @@ describe('ServiceRequestForm', () => {
     });
 
     it.each([
-      { label: 'the list is empty', offerings: [] },
-      { label: 'only another offering is present', offerings: [{ ...hourlyOffering, id: 13 }] },
-    ])('should report an unavailable offering when $label', ({ offerings }) => {
-      serviceOfferingStoreStub.getAll.mockReturnValue(of(offerings));
+      { label: 'the offering is missing', message: 'Service offering not found' },
+      { label: 'the provider is missing', message: 'Service provider with id 7 not found' },
+    ])('should report an unavailable offering when $label', ({ message }) => {
+      serviceOfferingStoreStub.getById.mockReturnValue(
+        throwError(() => new HttpErrorResponse({ status: 404, error: { message } })),
+      );
 
       createForm();
 
@@ -203,13 +206,16 @@ describe('ServiceRequestForm', () => {
       expect(component.loadError()).toBe('Cette offre de service est introuvable.');
     });
 
-    it('should report an HTTP loading error and stop showing progress', () => {
-      const response$ = new Subject<ServiceOffering[]>();
-      serviceOfferingStoreStub.getAll.mockReturnValue(response$);
+    it.each([
+      { label: 'an HTTP 500 response', error: new HttpErrorResponse({ status: 500 }) },
+      { label: 'an unexpected loading failure', error: new Error('Network unavailable') },
+    ])('should report $label and stop showing progress', ({ error }) => {
+      const response$ = new Subject<ServiceOffering>();
+      serviceOfferingStoreStub.getById.mockReturnValue(response$);
       createForm();
       expect(component.isLoading()).toBe(true);
 
-      response$.error(new HttpErrorResponse({ status: 500, statusText: 'Internal Server Error' }));
+      response$.error(error);
 
       expect(component.serviceOffering()).toBeNull();
       expect(component.isLoading()).toBe(false);
@@ -223,11 +229,14 @@ describe('ServiceRequestForm', () => {
     it.each(['loading', 'missing offering', 'loading error'] as const)(
       'should not submit a valid message when the offering is unavailable because of %s',
       (state) => {
-        const loading$ = new Subject<ServiceOffering[]>();
-        if (state === 'loading') serviceOfferingStoreStub.getAll.mockReturnValue(loading$);
-        if (state === 'missing offering') serviceOfferingStoreStub.getAll.mockReturnValue(of([]));
+        const loading$ = new Subject<ServiceOffering>();
+        if (state === 'loading') serviceOfferingStoreStub.getById.mockReturnValue(loading$);
+        if (state === 'missing offering')
+          serviceOfferingStoreStub.getById.mockReturnValue(
+            throwError(() => new HttpErrorResponse({ status: 404 })),
+          );
         if (state === 'loading error') {
-          serviceOfferingStoreStub.getAll.mockReturnValue(
+          serviceOfferingStoreStub.getById.mockReturnValue(
             throwError(() => new HttpErrorResponse({ status: 500 })),
           );
         }
@@ -265,7 +274,7 @@ describe('ServiceRequestForm', () => {
     ])(
       'should send only the message for a $pricingType offering and return to its provider after success',
       (pricing) => {
-        serviceOfferingStoreStub.getAll.mockReturnValue(of([{ ...hourlyOffering, ...pricing }]));
+        serviceOfferingStoreStub.getById.mockReturnValue(of({ ...hourlyOffering, ...pricing }));
         const response$ = new Subject<ServiceRequest>();
         serviceRequestStoreStub.add.mockReturnValue(response$);
         createForm();
@@ -380,8 +389,8 @@ describe('ServiceRequestForm', () => {
         control.setValue('Ancien brouillon');
         control.markAsDirty();
         control.markAsTouched();
-        const response = new Subject<ServiceOffering[]>();
-        serviceOfferingStoreStub.getAll.mockReturnValueOnce(response);
+        const response = new Subject<ServiceOffering>();
+        serviceOfferingStoreStub.getById.mockReturnValueOnce(response);
         const next: ServiceOffering = {
           ...hourlyOffering,
           id: offeringId,
@@ -398,7 +407,7 @@ describe('ServiceRequestForm', () => {
 
         expect(component.serviceProviderId).toBe(providerId);
         expect(component.serviceOfferingId).toBe(offeringId);
-        expect(serviceOfferingStoreStub.getAll).toHaveBeenLastCalledWith(providerId);
+        expect(serviceOfferingStoreStub.getById).toHaveBeenLastCalledWith(providerId, offeringId);
         expect(component.serviceOffering()).toBeNull();
         expect(component.isLoading()).toBe(true);
         expect(control.value).toBe('');
@@ -413,7 +422,7 @@ describe('ServiceRequestForm', () => {
         control.setValue(message);
         component.onSubmit();
         expect(serviceRequestStoreStub.add).not.toHaveBeenCalled();
-        response.next([next]);
+        response.next(next);
         response.complete();
         fixture.detectChanges();
 
@@ -434,10 +443,10 @@ describe('ServiceRequestForm', () => {
     );
 
     it('should cancel the old offering load and ignore its late response while keeping the new load active', () => {
-      const oldResponse = new Subject<ServiceOffering[]>();
-      const newResponse = new Subject<ServiceOffering[]>();
+      const oldResponse = new Subject<ServiceOffering>();
+      const newResponse = new Subject<ServiceOffering>();
       const stopped = vi.fn();
-      serviceOfferingStoreStub.getAll
+      serviceOfferingStoreStub.getById
         .mockReturnValueOnce(oldResponse.pipe(finalize(stopped)))
         .mockReturnValueOnce(newResponse);
       createForm();
@@ -448,9 +457,9 @@ describe('ServiceRequestForm', () => {
       expect(stopped).toHaveBeenCalledTimes(1);
       expect(component.isLoading()).toBe(true);
       const next = { ...hourlyOffering, id: 13, serviceProviderId: 8, title: 'Nouvelle offre' };
-      newResponse.next([next]);
+      newResponse.next(next);
       newResponse.complete();
-      oldResponse.next([hourlyOffering]);
+      oldResponse.next(hourlyOffering);
       oldResponse.complete();
       fixture.detectChanges();
 
@@ -469,10 +478,10 @@ describe('ServiceRequestForm', () => {
       );
       component.onSubmit();
       expect(component.submitError()).not.toBeNull();
-      serviceOfferingStoreStub.getAll
+      serviceOfferingStoreStub.getById
         .mockReturnValueOnce(throwError(() => new HttpErrorResponse({ status: 500 })))
-        .mockReturnValueOnce(of([]))
-        .mockReturnValueOnce(of([{ ...hourlyOffering, id: 15 }]));
+        .mockReturnValueOnce(throwError(() => new HttpErrorResponse({ status: 404 })))
+        .mockReturnValueOnce(of({ ...hourlyOffering, id: 15 }));
 
       routeParams.next(convertToParamMap({ id: '7', offeringId: '13' }));
 
@@ -503,7 +512,7 @@ describe('ServiceRequestForm', () => {
       routeParams.next(convertToParamMap({ id: '7', offeringId: '12', tab: 'message' }));
       fixture.detectChanges();
 
-      expect(serviceOfferingStoreStub.getAll).toHaveBeenCalledTimes(1);
+      expect(serviceOfferingStoreStub.getById).toHaveBeenCalledTimes(1);
       expect(control.value).toBe(message);
       expect(control.dirty).toBe(true);
       expect(control.touched).toBe(true);
@@ -524,8 +533,8 @@ describe('ServiceRequestForm', () => {
         component.onSubmit();
         expect(component.isSubmitting()).toBe(true);
         expect(stopped).not.toHaveBeenCalled();
-        serviceOfferingStoreStub.getAll.mockReturnValueOnce(
-          of([{ ...hourlyOffering, id: 13, serviceProviderId: 8 }]),
+        serviceOfferingStoreStub.getById.mockReturnValueOnce(
+          of({ ...hourlyOffering, id: 13, serviceProviderId: 8 }),
         );
 
         routeParams.next(convertToParamMap({ id: '8', offeringId: '13' }));
@@ -590,7 +599,7 @@ describe('ServiceRequestForm', () => {
         pricingType: pricing.pricingType,
         hourlyRate: pricing.hourlyRate,
       };
-      serviceOfferingStoreStub.getAll.mockReturnValue(of([offering]));
+      serviceOfferingStoreStub.getById.mockReturnValue(of(offering));
 
       createForm();
 
@@ -617,8 +626,8 @@ describe('ServiceRequestForm', () => {
     });
 
     it('should hide the form while loading and keep the return link available', () => {
-      const response$ = new Subject<ServiceOffering[]>();
-      serviceOfferingStoreStub.getAll.mockReturnValue(response$);
+      const response$ = new Subject<ServiceOffering>();
+      serviceOfferingStoreStub.getById.mockReturnValue(response$);
 
       createForm();
 
@@ -629,7 +638,7 @@ describe('ServiceRequestForm', () => {
       expect(element().querySelector('h3')).toBeNull();
       expect(element().querySelector('a')?.getAttribute('href')).toBe('/service-providers/7');
 
-      response$.next([hourlyOffering]);
+      response$.next(hourlyOffering);
       response$.complete();
       fixture.detectChanges();
 
@@ -646,9 +655,9 @@ describe('ServiceRequestForm', () => {
     ])(
       'should display a $kind alert instead of the form and keep the return link',
       ({ kind, message }) => {
-        serviceOfferingStoreStub.getAll.mockReturnValue(
+        serviceOfferingStoreStub.getById.mockReturnValue(
           kind === 'missing offering'
-            ? of([])
+            ? throwError(() => new HttpErrorResponse({ status: 404 }))
             : throwError(() => new HttpErrorResponse({ status: 500 })),
         );
 
